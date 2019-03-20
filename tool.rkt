@@ -36,6 +36,13 @@
      (define ea (inexact->exact a))
      (values ea (- b ea))]))
 
+(define (just a)
+  (define str (~a a))
+  (define p (open-input-string str))
+  (match* ((read p) (read p))
+    [(_ (? eof-object? _)) (string-append ". " str)]
+    [(_ _) str]))
+
 (begin-for-syntax
   (define (get-sep l r)
     (if (< l r) #''("\n") #''()))
@@ -139,7 +146,7 @@
                     str)))
             
             (with-handlers ([exn:fail:read? void])
-              (define p (open-input-string str))
+              (define p (open-input-string (string-replace str "." "\0")))
               (port-count-lines! p)
               (define stx (read-syntax #f p))
               
@@ -151,7 +158,7 @@
                           (send ed begin-edit-sequence)
                           (guard (send ed end-edit-sequence))
                           (send ed delete pos end)
-                          (send ed insert neo pos)
+                          (send ed insert (string-replace neo "\0" ".") pos)
                           (define neo-pos (send ed get-forward-sexp pos))
                           (when neo-pos
                             (send ed tabify-selection pos neo-pos))))]))
