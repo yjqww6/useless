@@ -144,6 +144,19 @@
                                 [(beg) (+ start -1)]
                                 [(str) (substring str beg (+ beg span))])
                     str)))
+
+            (define (un-improper s)
+              (define str (string-trim s))
+              (cond 
+                [(regexp-match #px"^\\s*\\.\\s*(.*)" str) => second] 
+                [else 
+                 (string-append "(" str ")")]))
+
+            (define (maybe-improper s)
+              (define str (string-trim s))
+              (cond
+                [(regexp-match #px"^[\\(\\[\\{](.*)[\\)\\]\\}]$" str) => second]
+                [else (string-append ". " str)]))
             
             (with-handlers ([exn:fail:read? void])
               (define p (open-input-string (string-replace str "." "\0")))
@@ -183,6 +196,42 @@
                           (~ (if ,(->text #'test)
                                  ,(->text #'then)
                                  ,(->text #'else)))))]
+                [((~datum define) . t)
+                 (syntax-parse stx
+                   [(_ (name . args) . e)
+                    (add "expand with let"
+                         (~ (define ,(->text #'name)
+                              (let ()
+                                (λ ,(un-improper (->text #'args))
+                                  ,(->text #'e))))))
+                    (add "expand"
+                         (~ (define ,(->text #'name)
+                              (λ ,(un-improper (->text #'args))
+                                ,(->text #'e)))))]
+                   [_ (void)])
+                 (syntax-parse stx
+                   [(_ x:id e:expr)
+                    (add "to define-values"
+                         (if (= (syntax-line #'x) (syntax-line #'e))
+                             (~ (define-values (,(->text #'x)) ,(->text #'e)))
+                             (~ (define-values (,(->text #'x))
+                                  ,(->text #'e)))))]
+                   [_ (void)])
+                 (syntax-parse stx
+                   [(_ head (~or ((~or (~datum λ) (~datum lambda)) args . body)
+                                 ((~or (~datum let) (~datum letrec))
+                                  ()
+                                  ((~or (~datum λ) (~datum lambda)) args . body))))
+                    (add "to function notation"
+                         (~ (define (,(->text #'head) ,(maybe-improper (->text #'args)))
+                              ,(->text #'body))))]
+                   [_ (void)])]
+                [((~datum define-values) (x:id) e:expr)
+                 (add "to define"
+                      (if (= (syntax-line #'x) (syntax-line #'e))
+                          (~ (define ,(->text #'x) ,(->text #'e)))
+                          (~ (define ,(->text #'x)
+                               ,(->text #'e)))))]
                 [((~datum define-syntax-rule) (name . pat) body)
                  (let ([a (->text #'name)]
                        [b (->text #'pat)]
@@ -235,6 +284,18 @@
                                  #',tpls]
                                 (ooo pats tpls)))))]
                    [_ (void)])]
+                [((~datum syntax) pat)
+                 (add "to syntax/loc"
+                      (if (< (syntax-span #'pat) 30)
+                          (~ (syntax/loc #'k ,(->text #'pat)))
+                          (~ (syntax/loc #'k
+                               ,(->text #'pat)))))]
+                [((~datum quasisyntax) pat)
+                 (add "to quasisyntax/loc"
+                      (if (< (syntax-span #'pat) 30)
+                          (~ (quasisyntax/loc #'k ,(->text #'pat)))
+                          (~ (quasisyntax/loc #'k
+                               ,(->text #'pat)))))]
                 [_ (void)]))))
          (void)
          )))))
