@@ -127,13 +127,13 @@
             (define str (send ed get-text pos end))
             
             (define (->text s)
-              (if (syntax? s)
+              (if (syntax-original? s)
                   (let* ([start (syntax-position s)]
                          [span (syntax-span s)]
                          [beg (+ start -1)]
                          [str (substring str beg (+ beg span))])
                     str)
-                  (let*-values ([(start span) (relocate s)]
+                  (let*-values ([(start span) (relocate (flat s))]
                                 [(beg) (+ start -1)]
                                 [(str) (substring str beg (+ beg span))])
                     str)))
@@ -176,9 +176,9 @@
                           (~ (if ,(->text #'test)
                                  ,(->text #'then)
                                  ,(->text #'else)))))]
-                [((~datum define-syntax-rule) (~and head (name . _)) body)
+                [((~datum define-syntax-rule) (name . pat) body)
                  (let ([a (->text #'name)]
-                       [b (->text (cdr (flat #'head)))]
+                       [b (->text #'pat)]
                        [c (->text #'body)])
                    (add "to syntax-rules"
                         (~ (define-syntax ,a
@@ -192,16 +192,16 @@
                                 #',c])))))]
                 [((~datum define-syntax) (name:id param:id) body)
                  (syntax-parse #'body
-                   [((~datum syntax-case) param2 () [(~and pat (_ . _)) ((~datum syntax) tpl)])
+                   [((~datum syntax-case) param2 () [(_ . pat) ((~datum syntax) tpl)])
                     #:when (free-identifier=? #'param2 #'param)
                     (add "to define-syntax-rule"
-                         (~ (define-syntax-rule (,(->text #'name) ,(->text (cdr (flat #'pat))))
+                         (~ (define-syntax-rule (,(->text #'name) ,(->text #'pat))
                               ,(->text #'tpl))))]
                    [_ (void)])
                  (syntax-parse #'body
-                   [((~datum syntax-case) param2 lit [(~and pat (_ . _)) ((~datum syntax) tpl)] ...)
+                   [((~datum syntax-case) param2 lit [(_ . pat) ((~datum syntax) tpl)] ...)
                     #:when (free-identifier=? #'param2 #'param)
-                    (define pats (map (λ (p) (->text (cdr (flat p)))) (syntax->list #'(pat ...))))
+                    (define pats (map ->text (syntax->list #'(pat ...))))
                     (define tpls (map ->text (syntax->list #'(tpl ...))))
                     (add "to syntax-rules"
                          (~ (define-syntax ,(->text #'name)
@@ -212,14 +212,14 @@
                    [_ (void)])]
                 [((~datum define-syntax) name:id body)
                  (syntax-parse #'body
-                   [((~datum syntax-rules) () [(~and pat (_ . _)) tpl])
+                   [((~datum syntax-rules) () [(_ . pat) tpl])
                     (add "to define-syntax-rule"
-                         (~ (define-syntax-rule (,(->text #'name) ,(->text (cdr (flat #'pat))))
+                         (~ (define-syntax-rule (,(->text #'name) ,(->text #'pat))
                               ,(->text #'tpl))))]
                    [_ (void)])
                  (syntax-parse #'body
-                   [((~datum syntax-rules) lit [(~and pat (_ . _)) tpl] ...)
-                    (define pats (map (λ (p) (->text (cdr (flat p)))) (syntax->list #'(pat ...))))
+                   [((~datum syntax-rules) lit [(_ . pat) tpl] ...)
+                    (define pats (map ->text (syntax->list #'(pat ...))))
                     (define tpls (map ->text (syntax->list #'(tpl ...))))
                     (add "to syntax-case"
                          (~ (define-syntax (,(->text #'name) stx)
