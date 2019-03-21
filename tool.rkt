@@ -5,6 +5,40 @@
 
 (provide tool@)
 
+(module text racket
+  (provide (all-defined-out))
+
+  (define (just str)
+    (if (string? str)
+        str
+        (string-append "(" (unbox str) ")")))
+  
+  (define (un-improper str)
+    (if (string? str)
+        (string-append ". " str)
+        (unbox str)))
+
+  (define (maybe-improper s)
+    (define str (string-trim s))
+    (cond
+      [(regexp-match #px"^[\\(\\[\\{](.*)[\\)\\]\\}]$" str) => second]
+      [else (string-append ". " str)]))
+
+  (define (->text s proper? cvt)
+    (define old (cvt s))
+    (match* ((syntax-original? s) proper?)
+      [(#t #t) old]
+      [(#t #f) (maybe-improper old)]
+      [(#f #f) (un-improper old)]
+      [(#f #t) (just old)]))
+
+  (define current->text (make-parameter #f))
+
+  (define (fmt s proper?)
+    (->text s proper? (current->text))))
+
+(require 'text)
+
 (define (loc stx)
   (cons (syntax-position stx)
         (syntax-span stx)))
@@ -36,14 +70,8 @@
      (define ea (inexact->exact a))
      (values ea (- b ea))]))
 
-(define (just a)
-  (define str (~a a))
-  (define p (open-input-string str))
-  (match* ((read p) (read p))
-    [(_ (? eof-object? _)) (string-append ". " str)]
-    [(_ _) str]))
-
 (begin-for-syntax
+
   (define (get-sep l r)
     (if (< l r) #''("\n") #''()))
 
@@ -51,9 +79,11 @@
     (syntax-parse ls
       [()
        (values #''("") 0)]
-      [(h (~and me ((~datum ooo) x:id ...)) t ...)
+      [((~datum unquote) a:expr)
+       (values #'(list (fmt a #f)) (syntax-line #'a))]
+      [(h (~and me ((~datum ....) [x:id e:expr] ...)) . t)
        #:do [(define-values (hs hl) (convert #'h))
-             (define-values (ts tl) (convert-list #'(t ...)))]
+             (define-values (ts tl) (convert-list #'t))]
        #:with ht hs
        #:with tt ts
        #:with sep (get-sep hl tl)
@@ -61,19 +91,19 @@
         (if (< hl (syntax-line #'me))
             #'(cons
                (string-join
-                (for/list ([x (in-list x)] ...)
+                (for/list ([x (in-list (syntax->list e))] ...)
                   ht)
                 "\n")
                (append sep tt))
             #'(append
-               (for/list ([x (in-list x)] ...)
+               (for/list ([x (in-list (syntax->list e))] ...)
                  ht)
                sep
                tt))
         hl)]
-      [(h t ...)
+      [(h . t)
        #:do [(define-values (hs hl) (convert #'h))
-             (define-values (ts tl) (convert-list #'(t ...)))]
+             (define-values (ts tl) (convert-list #'t))]
        #:with ht hs
        #:with tt ts
        #:with sep (get-sep hl tl)
@@ -82,20 +112,20 @@
   (define (convert stx)
     (syntax-parse stx
       [((~datum unquote) a:expr)
-       (values #'(~a a) (syntax-line stx))]
+       (values #'(fmt a #t) (syntax-line stx))]
       [((~datum syntax) form)
        #:do [(define-values (fs fl) (convert #'form))]
        #:with f fs
        (values #'(string-append '"#'" f) (syntax-line stx))]
       [()
        (values #''"()" (syntax-line stx))]
-      [(~and l (term ...))
+      [(~and l (a . b))
        #:do [(define lshape (or (syntax-property #'l 'paren-shape) #\())
              (define rshape (case lshape
                               [(#\() #\)]
                               [(#\[) #\]]
                               [(#\{) #\}]))
-             (define-values (t _) (convert-list #'(term ...)))]
+             (define-values (t _) (convert-list #'(a . b)))]
        #:with t t
        (values
         #`(string-append
@@ -103,7 +133,8 @@
            (string-join (filter non-empty-string? t))
            (~a #,rshape))
         (syntax-line stx))]
-      [thing (values #'(~a 'thing) (syntax-line stx))])))
+      [thing (values #`'#,(format "~a" (syntax->datum stx))
+                     (syntax-line stx))])))
 
 (define-syntax (~ stx)
   (syntax-case stx ()
@@ -143,159 +174,140 @@
                   (let*-values ([(start span) (relocate (flat s))]
                                 [(beg) (+ start -1)]
                                 [(str) (substring str beg (+ beg span))])
-                    str)))
+                    (box str))))
 
-            (define (un-improper s)
-              (define str (string-trim s))
-              (cond 
-                [(regexp-match #px"^\\s*\\.\\s*(.*)" str) => second] 
-                [else 
-                 (string-append "(" str ")")]))
-
-            (define (maybe-improper s)
-              (define str (string-trim s))
-              (cond
-                [(regexp-match #px"^[\\(\\[\\{](.*)[\\)\\]\\}]$" str) => second]
-                [else (string-append ". " str)]))
-            
-            (with-handlers ([exn:fail:read? void])
-              (define p (open-input-string (string-replace str "." "\0")))
-              (port-count-lines! p)
-              (define stx (read-syntax #f p))
+            (parameterize ([current->text ->text])
+              (with-handlers ([exn:fail:read? void])
+                (define p (open-input-string str))
+                (port-count-lines! p)
+                (define stx (read-syntax #f p))
               
-              (define (add label neo)
-                (new menu-item% [label label] [parent menu]
-                     [callback
-                      (λ (m e)
-                        (with-scope-guard guard
-                          (send ed begin-edit-sequence)
-                          (guard (send ed end-edit-sequence))
-                          (send ed delete pos end)
-                          (send ed insert (string-replace neo "\0" ".") pos)
-                          (define neo-pos (send ed get-forward-sexp pos))
-                          (when neo-pos
-                            (send ed tabify-selection pos neo-pos))))]))
+                (define (add label neo)
+                  (new menu-item% [label label] [parent menu]
+                       [callback
+                        (λ (m e)
+                          (with-scope-guard guard
+                            (send ed begin-edit-sequence)
+                            (guard (send ed end-edit-sequence))
+                            (send ed delete pos end)
+                            (send ed insert neo pos)
+                            (define neo-pos (send ed get-forward-sexp pos))
+                            (when neo-pos
+                              (send ed tabify-selection pos neo-pos))))]))
               
-              (syntax-parse stx
-                [((~datum if) test then else)
-                 (add "to cond"
-                      (if (and (> (syntax-line #'then) (syntax-line #'test))
-                               (> (syntax-span #'test) 30))
-                          (~ (cond
-                               [,(->text #'test)
-                                ,(->text #'then)]
-                               [else
-                                ,(->text #'else)]))
-                          (~ (cond
-                               [,(->text #'test) ,(->text #'then)]
-                               [else ,(->text #'else)]))))]
-                [((~datum cond) [test then] [(~datum else) else])
-                 (add "to if"
-                      (if (= (syntax-line #'then) (syntax-line #'else))
-                          (~ (if ,(->text #'test) ,(->text #'then) ,(->text #'else)))
-                          (~ (if ,(->text #'test)
-                                 ,(->text #'then)
-                                 ,(->text #'else)))))]
-                [((~datum define) . t)
-                 (syntax-parse stx
-                   [(_ (name . args) . e)
-                    (add "expand with let"
-                         (~ (define ,(->text #'name)
-                              (let ()
-                                (λ ,(un-improper (->text #'args))
-                                  ,(->text #'e))))))
-                    (add "expand"
-                         (~ (define ,(->text #'name)
-                              (λ ,(un-improper (->text #'args))
-                                ,(->text #'e)))))]
-                   [_ (void)])
-                 (syntax-parse stx
-                   [(_ x:id e:expr)
-                    (add "to define-values"
-                         (if (= (syntax-line #'x) (syntax-line #'e))
-                             (~ (define-values (,(->text #'x)) ,(->text #'e)))
-                             (~ (define-values (,(->text #'x))
-                                  ,(->text #'e)))))]
-                   [_ (void)])
-                 (syntax-parse stx
-                   [(_ head (~or ((~or (~datum λ) (~datum lambda)) args . body)
-                                 ((~or (~datum let) (~datum letrec))
-                                  ()
-                                  ((~or (~datum λ) (~datum lambda)) args . body))))
-                    (add "to function notation"
-                         (~ (define (,(->text #'head) ,(maybe-improper (->text #'args)))
-                              ,(->text #'body))))]
-                   [_ (void)])]
-                [((~datum define-values) (x:id) e:expr)
-                 (add "to define"
-                      (if (= (syntax-line #'x) (syntax-line #'e))
-                          (~ (define ,(->text #'x) ,(->text #'e)))
-                          (~ (define ,(->text #'x)
-                               ,(->text #'e)))))]
-                [((~datum define-syntax-rule) (name . pat) body)
-                 (let ([a (->text #'name)]
-                       [b (->text #'pat)]
-                       [c (->text #'body)])
+                (syntax-parse stx
+                  [((~datum if) test then else)
+                   (add "to cond"
+                        (if (and (> (syntax-line #'then) (syntax-line #'test))
+                                 (> (syntax-span #'test) 30))
+                            (~ (cond
+                                 [,#'test
+                                  ,#'then]
+                                 [else
+                                  ,#'else]))
+                            (~ (cond
+                                 [,#'test ,#'then]
+                                 [else ,#'else]))))]
+                  [((~datum cond) [test then] [(~datum else) else])
+                   (add "to if"
+                        (if (= (syntax-line #'then) (syntax-line #'else))
+                            (~ (if ,#'test ,#'then ,#'else))
+                            (~ (if ,#'test
+                                   ,#'then
+                                   ,#'else))))]
+                  [((~datum define) . t)
+                   (syntax-parse stx
+                     [(_ (name . args) . e)
+                      (add "expand with let"
+                           (~ (define ,#'name
+                                (let ()
+                                  (λ ,#'args
+                                    . ,#'e)))))
+                      (add "expand"
+                           (~ (define ,#'name
+                                (λ ,#'args
+                                  . ,#'e))))]
+                     [_ (void)])
+                   (syntax-parse stx
+                     [(_ x:id e:expr)
+                      (add "to define-values"
+                           (if (= (syntax-line #'x) (syntax-line #'e))
+                               (~ (define-values (,#'x) ,#'e))
+                               (~ (define-values (,#'x)
+                                    ,#'e))))]
+                     [_ (void)])
+                   (syntax-parse stx
+                     [(_ head (~or ((~or (~datum λ) (~datum lambda)) args . body)
+                                   ((~or (~datum let) (~datum letrec))
+                                    ()
+                                    ((~or (~datum λ) (~datum lambda)) args . body))))
+                      (add "to function notation"
+                           (~ (define (,#'head . ,#'args)
+                                . ,#'body)))]
+                     [_ (void)])]
+                  [((~datum define-values) (x:id) e:expr)
+                   (add "to define"
+                        (if (= (syntax-line #'x) (syntax-line #'e))
+                            (~ (define ,#'x ,#'e))
+                            (~ (define ,#'x
+                                 ,#'e))))]
+                  [((~datum define-syntax-rule) (name . pat) body)
                    (add "to syntax-rules"
-                        (~ (define-syntax ,a
+                        (~ (define-syntax ,#'name
                              (syntax-rules ()
-                               [(_ ,b)
-                                ,c]))))
+                               [(_ . ,#'pat)
+                                ,#'body]))))
                    (add "to syntax-case"
-                        (~ (define-syntax (,a stx)
+                        (~ (define-syntax (,#'name stx)
                              (syntax-case stx ()
-                               [(_ ,b)
-                                #',c])))))]
-                [((~datum define-syntax) (name:id param:id) body)
-                 (syntax-parse #'body
-                   [((~datum syntax-case) param2 () [(_ . pat) ((~datum syntax) tpl)])
-                    #:when (free-identifier=? #'param2 #'param)
-                    (add "to define-syntax-rule"
-                         (~ (define-syntax-rule (,(->text #'name) ,(->text #'pat))
-                              ,(->text #'tpl))))]
-                   [_ (void)])
-                 (syntax-parse #'body
-                   [((~datum syntax-case) param2 lit [(_ . pat) ((~datum syntax) tpl)] ...)
-                    #:when (free-identifier=? #'param2 #'param)
-                    (define pats (map ->text (syntax->list #'(pat ...))))
-                    (define tpls (map ->text (syntax->list #'(tpl ...))))
-                    (add "to syntax-rules"
-                         (~ (define-syntax ,(->text #'name)
-                              (syntax-rules ,(->text #'lit)
-                                [(_ ,pats)
-                                 ,tpls]
-                                (ooo pats tpls)))))]
-                   [_ (void)])]
-                [((~datum define-syntax) name:id body)
-                 (syntax-parse #'body
-                   [((~datum syntax-rules) () [(_ . pat) tpl])
-                    (add "to define-syntax-rule"
-                         (~ (define-syntax-rule (,(->text #'name) ,(->text #'pat))
-                              ,(->text #'tpl))))]
-                   [_ (void)])
-                 (syntax-parse #'body
-                   [((~datum syntax-rules) lit [(_ . pat) tpl] ...)
-                    (define pats (map ->text (syntax->list #'(pat ...))))
-                    (define tpls (map ->text (syntax->list #'(tpl ...))))
-                    (add "to syntax-case"
-                         (~ (define-syntax (,(->text #'name) stx)
-                              (syntax-case stx ,(->text #'lit)
-                                [(_ ,pats)
-                                 #',tpls]
-                                (ooo pats tpls)))))]
-                   [_ (void)])]
-                [((~datum syntax) pat)
-                 (add "to syntax/loc"
-                      (if (< (syntax-span #'pat) 30)
-                          (~ (syntax/loc #'k ,(->text #'pat)))
-                          (~ (syntax/loc #'k
-                               ,(->text #'pat)))))]
-                [((~datum quasisyntax) pat)
-                 (add "to quasisyntax/loc"
-                      (if (< (syntax-span #'pat) 30)
-                          (~ (quasisyntax/loc #'k ,(->text #'pat)))
-                          (~ (quasisyntax/loc #'k
-                               ,(->text #'pat)))))]
-                [_ (void)]))))
+                               [(_ . ,#'pat)
+                                #',#'body]))))]
+                  [((~datum define-syntax) (name:id param:id) body)
+                   (syntax-parse #'body
+                     [((~datum syntax-case) param2 () [(_ . pat) ((~datum syntax) tpl)])
+                      #:when (free-identifier=? #'param2 #'param)
+                      (add "to define-syntax-rule"
+                           (~ (define-syntax-rule (,#'name . ,#'pat)
+                                ,#'tpl)))]
+                     [_ (void)])
+                   (syntax-parse #'body
+                     [((~datum syntax-case) param2 lit [(_ . pat) ((~datum syntax) tpl)] ...)
+                      #:when (free-identifier=? #'param2 #'param)
+                      (add "to syntax-rules"
+                           (~ (define-syntax ,#'name
+                                (syntax-rules ,#'lit
+                                  [(_ . ,p)
+                                   ,t]
+                                  (.... [p #'(pat ...)] [t #'(tpl ...)])))))]
+                     [_ (void)])]
+                  [((~datum define-syntax) name:id body)
+                   (syntax-parse #'body
+                     [((~datum syntax-rules) () [(_ . pat) tpl])
+                      (add "to define-syntax-rule"
+                           (~ (define-syntax-rule (,#'name . ,#'pat)
+                                ,#'tpl)))]
+                     [_ (void)])
+                   (syntax-parse #'body
+                     [((~datum syntax-rules) lit [(_ . pat) tpl] ...)
+                      (add "to syntax-case"
+                           (~ (define-syntax (,#'name stx)
+                                (syntax-case stx ,#'lit
+                                  [(_ . ,p)
+                                   #',t]
+                                  (.... [p #'(pat ...)] [t #'(tpl ...)])))))]
+                     [_ (void)])]
+                  [((~datum syntax) pat)
+                   (add "to syntax/loc"
+                        (if (< (syntax-span #'pat) 30)
+                            (~ (syntax/loc #'k ,#'pat))
+                            (~ (syntax/loc #'k
+                                 ,#'pat))))]
+                  [((~datum quasisyntax) pat)
+                   (add "to quasisyntax/loc"
+                        (if (< (syntax-span #'pat) 30)
+                            (~ (quasisyntax/loc #'k ,#'pat))
+                            (~ (quasisyntax/loc #'k
+                                 ,#'pat))))]
+                  [_ (void)])))))
          (void)
          )))))
