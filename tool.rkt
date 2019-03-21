@@ -8,15 +8,15 @@
 (module text racket
   (provide (all-defined-out))
 
-  (define (just str)
-    (if (string? str)
+  (define (just str orig?)
+    (if orig?
         str
-        (string-append "(" (unbox str) ")")))
+        (string-append "(" str ")")))
   
-  (define (un-improper str)
-    (if (string? str)
+  (define (un-improper str orig?)
+    (if orig?
         (string-append ". " str)
-        (unbox str)))
+        str))
 
   (define (maybe-improper s)
     (define str (string-trim s))
@@ -26,11 +26,12 @@
 
   (define (->text s proper? cvt)
     (define old (cvt s))
-    (match* ((syntax-original? s) proper?)
+    (define orig? (syntax-original? s))
+    (match* (orig? proper?)
       [(#t #t) old]
       [(#t #f) (maybe-improper old)]
-      [(#f #f) (un-improper old)]
-      [(#f #t) (just old)]))
+      [(#f #f) (un-improper old orig?)]
+      [(#f #t) (just old orig?)]))
 
   (define current->text (make-parameter #f))
 
@@ -174,7 +175,7 @@
                   (let*-values ([(start span) (relocate (flat s))]
                                 [(beg) (+ start -1)]
                                 [(str) (substring str beg (+ beg span))])
-                    (box str))))
+                    str)))
 
             (parameterize ([current->text ->text])
               (with-handlers ([exn:fail:read? void])
