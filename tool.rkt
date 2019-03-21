@@ -114,10 +114,11 @@
     (syntax-parse stx
       [((~datum unquote) a:expr)
        (values #'(fmt a #t) (syntax-line stx))]
-      [((~datum syntax) form)
+      [((~or (~and (~datum syntax) (~bind [p #''"#'"]))
+             (~and (~datum quote) (~bind [p #''"'"]))) form)
        #:do [(define-values (fs fl) (convert #'form))]
        #:with f fs
-       (values #'(string-append '"#'" f) (syntax-line stx))]
+       (values #'(string-append p f) (syntax-line stx))]
       [()
        (values #''"()" (syntax-line stx))]
       [(~and l (a . b))
@@ -309,6 +310,9 @@
                             (~ (quasisyntax/loc #'k ,#'pat))
                             (~ (quasisyntax/loc #'k
                                  ,#'pat))))]
+                  [((~datum quote) (data ...))
+                   (add "to (list ...)"
+                        (~ (list (quote ,d) (.... [d #'(data ...)]))))]
                   [_ (void)])))))
          (void)
          )))))
