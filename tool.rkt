@@ -58,7 +58,7 @@
 
 (define (relocate ls)
   (cond
-    [(null? ls) (values 0 0)]
+    [(null? ls) (values 1 0)]
     [else
      (define-values (a b)
        (for/fold ([a +inf.0]
@@ -136,7 +136,16 @@
            (~a #,rshape))
         (syntax-line stx))]
       [thing (values #`'#,(format "~a" (syntax->datum stx))
-                     (syntax-line stx))])))
+                     (syntax-line stx))]))
+
+  )
+
+(define-syntax-rule (cases obj clauses ...)
+  (let ([it obj])
+    (syntax-parse it
+      clauses
+      [_ (void)])
+    ...))
 
 (define-syntax (~ stx)
   (syntax-case stx ()
@@ -210,15 +219,34 @@
                             (~ (cond
                                  [,#'test ,#'then]
                                  [else ,#'else]))))]
-                  [((~datum cond) [test then] [(~datum else) else])
-                   (add "to if"
-                        (if (= (syntax-line #'then) (syntax-line #'else))
-                            (~ (if ,#'test ,#'then ,#'else))
-                            (~ (if ,#'test
-                                   ,#'then
-                                   ,#'else))))]
+                  [((~datum cond) ~! . _)
+                   (cases stx
+                     [(_ [test then] [(~datum else) else])
+                      (add "to if"
+                           (if (= (syntax-line #'then) (syntax-line #'else))
+                               (~ (if ,#'test ,#'then ,#'else))
+                               (~ (if ,#'test
+                                      ,#'then
+                                      ,#'else))))]
+                     [(_ [test . then] [(~datum else) . else])
+                      (add "name test"
+                           (~ (cond
+                                [,#'test
+                                 =>
+                                 (λ (it)
+                                   . ,#'then)]
+                                [else
+                                 . ,#'else])))]
+                     [(_
+                       [test (~datum =>) ((~or (~datum lambda) (~datum λ)) (it) then)]
+                       [(~datum else) else])
+                      (add "to if"
+                           (~ (let ([it ,#'test])
+                                (if it
+                                    ,#'then
+                                    ,#'else))))])]
                   [((~datum define) . t)
-                   (syntax-parse stx
+                   (cases stx
                      [(_ (name . args) . e)
                       (add "expand with let"
                            (~ (define ,#'name
@@ -229,24 +257,19 @@
                            (~ (define ,#'name
                                 (λ ,#'args
                                   . ,#'e))))]
-                     [_ (void)])
-                   (syntax-parse stx
                      [(_ x:id e:expr)
                       (add "to define-values"
                            (if (= (syntax-line #'x) (syntax-line #'e))
                                (~ (define-values (,#'x) ,#'e))
                                (~ (define-values (,#'x)
                                     ,#'e))))]
-                     [_ (void)])
-                   (syntax-parse stx
                      [(_ head (~or ((~or (~datum λ) (~datum lambda)) args . body)
                                    ((~or (~datum let) (~datum letrec))
                                     ()
                                     ((~or (~datum λ) (~datum lambda)) args . body))))
                       (add "to function notation"
                            (~ (define (,#'head . ,#'args)
-                                . ,#'body)))]
-                     [_ (void)])]
+                                . ,#'body)))])]
                   [((~datum define-values) (x:id) e:expr)
                    (add "to define"
                         (if (= (syntax-line #'x) (syntax-line #'e))
@@ -265,14 +288,12 @@
                                [(_ . ,#'pat)
                                 #',#'body]))))]
                   [((~datum define-syntax) (name:id param:id) body)
-                   (syntax-parse #'body
+                   (cases #'body
                      [((~datum syntax-case) param2 () [(_ . pat) ((~datum syntax) tpl)])
                       #:when (free-identifier=? #'param2 #'param)
                       (add "to define-syntax-rule"
                            (~ (define-syntax-rule (,#'name . ,#'pat)
                                 ,#'tpl)))]
-                     [_ (void)])
-                   (syntax-parse #'body
                      [((~datum syntax-case) param2 lit [(_ . pat) ((~datum syntax) tpl)] ...)
                       #:when (free-identifier=? #'param2 #'param)
                       (add "to syntax-rules"
@@ -280,24 +301,20 @@
                                 (syntax-rules ,#'lit
                                   [(_ . ,p)
                                    ,t]
-                                  (.... [p #'(pat ...)] [t #'(tpl ...)])))))]
-                     [_ (void)])]
+                                  (.... [p #'(pat ...)] [t #'(tpl ...)])))))])]
                   [((~datum define-syntax) name:id body)
-                   (syntax-parse #'body
+                   (cases #'body
                      [((~datum syntax-rules) () [(_ . pat) tpl])
                       (add "to define-syntax-rule"
                            (~ (define-syntax-rule (,#'name . ,#'pat)
                                 ,#'tpl)))]
-                     [_ (void)])
-                   (syntax-parse #'body
                      [((~datum syntax-rules) lit [(_ . pat) tpl] ...)
                       (add "to syntax-case"
                            (~ (define-syntax (,#'name stx)
                                 (syntax-case stx ,#'lit
                                   [(_ . ,p)
                                    #',t]
-                                  (.... [p #'(pat ...)] [t #'(tpl ...)])))))]
-                     [_ (void)])]
+                                  (.... [p #'(pat ...)] [t #'(tpl ...)])))))])]
                   [((~datum syntax) pat)
                    (add "to syntax/loc"
                         (if (< (syntax-span #'pat) 30)
