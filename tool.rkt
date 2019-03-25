@@ -330,6 +330,26 @@
                   [((~datum quote) (data ...))
                    (add "to (list ...)"
                         (~ (list (quote ,d) (.... [d #'(data ...)]))))]
+                  [((~datum let) ([id expr] ...) . body)
+                   (add "to let-values"
+                        (~ (let-values ([(,id) ,expr]
+                                        (.... [id #'(id ...)] [expr #'(expr ...)]))
+                             . ,#'body)))]
+                  [((~datum let*) ([id expr] ...) . body)
+                   (add "to let*-values"
+                        (~ (let*-values ([(,id) ,expr]
+                                         (.... [id #'(id ...)] [expr #'(expr ...)]))
+                             . ,#'body)))]
+                  [((~datum let-values) ([(id) expr] ...) . body)
+                   (add "to let"
+                        (~ (let ([,id ,expr]
+                                 (.... [id #'(id ...)] [expr #'(expr ...)]))
+                             . ,#'body)))]
+                  [((~datum let*-values) ([(id) expr] ...) . body)
+                   (add "to let*"
+                        (~ (let* ([,id ,expr]
+                                  (.... [id #'(id ...)] [expr #'(expr ...)]))
+                             . ,#'body)))]
                   [_ (void)])))))
          (void)
          )))))
