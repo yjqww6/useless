@@ -41,8 +41,9 @@
          (orig menu ed ev)
          
          (and-body
+          #:all
+          (is-a? ed drracket:unit:definitions-text<%>)
           (define pos (send ed get-start-position))
-          (define _ (is-a? ed drracket:unit:definitions-text<%>))
           (define end (send ed get-forward-sexp pos))
           (define str (send ed get-text pos end))
               

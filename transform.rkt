@@ -202,7 +202,6 @@
        t)]))
 
 (define (append-options add str ed ev)
-            
   (define (->text s)
     (cond
       [(syntax-property s 'transform)
