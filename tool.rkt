@@ -1,6 +1,7 @@
 #lang racket
 (require racket/gui drracket/tool framework racket/runtime-path
-         "and-body.rkt" "scope-guard.rkt")
+         "and-body.rkt" "scope-guard.rkt"
+         syntax/parse (for-syntax syntax/parse))
 
 (provide tool@)
 
@@ -10,6 +11,9 @@
 
 (define (reload-transform)
   (parameterize ([current-namespace (make-base-namespace)])
+    (define ns (variable-reference->namespace (#%variable-reference)))
+    (namespace-attach-module ns 'racket/gui)
+    (namespace-attach-module ns 'syntax/parse)
     (set! trans (dynamic-require trans.rkt 'append-options))))
 
 (define tool@
