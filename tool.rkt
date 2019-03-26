@@ -10,11 +10,18 @@
 (define trans void)
 
 (define (reload-transform)
-  (parameterize ([current-namespace (make-base-namespace)])
-    (define ns (variable-reference->namespace (#%variable-reference)))
-    (namespace-attach-module ns 'racket/gui)
-    (namespace-attach-module ns 'syntax/parse)
-    (set! trans (dynamic-require trans.rkt 'append-options))))
+  (define-values (_ t1 t2 t3)
+    (time-apply
+     (λ ()
+       (parameterize ([current-namespace (make-base-namespace)])
+         (define ns (variable-reference->namespace (#%variable-reference)))
+         (namespace-attach-module ns 'racket/gui)
+         (namespace-attach-module ns 'syntax/parse)
+         (set! trans (dynamic-require trans.rkt 'append-options))))
+     '()))
+  (log-message (current-logger) 'debug 'useless
+               (format "reloading done in ~a ms" t1)
+               (current-continuation-marks)))
 
 (define tool@
   (unit
