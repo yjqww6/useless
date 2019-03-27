@@ -1,6 +1,6 @@
 #lang racket
 (require racket/gui drracket/tool framework racket/runtime-path
-         "and-body.rkt" "scope-guard.rkt"
+         "transform-sig.rkt"
          syntax/parse (for-syntax syntax/parse))
 
 (provide tool@)
@@ -15,9 +15,13 @@
      (λ ()
        (parameterize ([current-namespace (make-base-namespace)])
          (define ns (variable-reference->namespace (#%variable-reference)))
+         (namespace-attach-module ns 'racket)
          (namespace-attach-module ns 'racket/gui)
          (namespace-attach-module ns 'syntax/parse)
-         (set! trans (dynamic-require trans.rkt 'append-options))))
+         (namespace-attach-module ns 'framework)
+         (namespace-attach-module ns 'drracket/tool)
+         (namespace-attach-module ns '"transform-sig.rkt")
+         (set! trans (dynamic-require trans.rkt 'transform@))))
      '()))
   (log-message (current-logger) 'debug 'useless
                (format "reloading done in ~a ms" t1)
@@ -45,35 +49,24 @@
     
     (drracket:get/extend:extend-unit-frame frame-mixin)
 
+    (define trans-here trans)
+    (define append-here void)
+
     (keymap:add-to-right-button-menu
      (let ([orig (keymap:add-to-right-button-menu)])
        (λ (menu ed ev)
          
          (orig menu ed ev)
-         
-         (and-body
-          #:all
-          (is-a? ed drracket:unit:definitions-text<%>)
-          (define pos (send ed get-start-position))
-          (define end (send ed get-forward-sexp pos))
-          (define str (send ed get-text pos end))
-              
-          (define (add label neo)
-            (new menu-item% [label label] [parent menu]
-                 [callback
-                  (λ (m e)
-                    (with-scope-guard guard
-                      (send ed begin-edit-sequence)
-                      (guard (send ed end-edit-sequence))
-                      (send ed delete pos end)
-                      (send ed insert neo pos)
-                      (define neo-pos (send ed get-forward-sexp pos))
-                      (when neo-pos
-                        (send ed tabify-selection pos neo-pos))))]))
 
-          (trans add str ed ev))
+         (cond
+           [(eq? trans trans-here) (append-here menu ed ev)]
+           [else
+            (define-values/invoke-unit trans
+              (import drracket:tool^)
+              (export transform^))
+            (set! trans-here trans)
+            (set! append-here append-options)
+            (append-options menu ed ev)])
          
-         (void)
          )))))
-
 (reload-transform)
