@@ -24,8 +24,56 @@
   
   (syntax-parse stx
     [(_ msw:opt method-spec ...)
+     #:with (here next super-lambda next-lambda) (generate-temporaries '(here next super-lambda next-lambda))
 
      (define use-surrogate-wrapper-proc? (syntax-e #'msw.wrapper?))
+
+     (define ((make-compose-lambda-case name) spec)
+       (with-syntax ([name name])
+         (syntax-case spec ()
+           [(id ...)
+            #'[(ths super-call id ...)
+               (send here name ths (next-lambda super-call ths) id ...)]]
+           [id
+            (identifier? (syntax id))
+            #'[(ths super-call . id) (send here name ths (next-lambda super-call ths) . id)]])))
+
+     (define ((make-next-lambda-case name) spec)
+       (with-syntax ([name name])
+         (syntax-case spec ()
+           [(id ...) (syntax [(id ...) (send next name ths (super-lambda super-call ths) id ...)])]
+           [id
+            (identifier? (syntax id))
+            (syntax [id (send next name ths (super-lambda super-call ths) . id)])])))
+
+     (define (make-super-lambda-case spec)
+       (syntax-case spec ()
+         [(id ...) (syntax [(id ...) (super-call id ...)])]
+         [id
+          (identifier? (syntax id))
+          (syntax [name (apply super-call name)])]))
+
+     (define (make-compose-method-from-argspec name argspecs)
+       (with-syntax ([(super-cases ...) (map make-super-lambda-case (syntax->list argspecs))]
+                     [(next-cases ...) (map (make-next-lambda-case name) (syntax->list argspecs))]
+                     [(cases ...) (map (make-compose-lambda-case name)
+                                       (syntax->list argspecs))]
+                     [name name])
+         (syntax
+          (begin
+            (define/public name
+              (let* ([super-lambda (λ (super-call ths) (case-lambda super-cases ...))]
+                     [next-lambda (λ (super-call ths) (case-lambda next-cases ...))])
+                (case-lambda cases ...)))))))
+     
+     (define (make-compose-method method-spec)
+       (syntax-case method-spec (override augment)
+         [(override name argspec ...)
+          (identifier? #'name)
+          (make-compose-method-from-argspec #'name #'(argspec ...))]
+         [(augment def-expr name argspec ...)
+          (identifier? (syntax name))
+          (make-compose-method-from-argspec #'name (syntax (argspec ...)))]))
      
      (define (make-empty-method method-spec)
        (syntax-case method-spec (override augment)
@@ -192,6 +240,10 @@
                    [(empty-methods ...)
                     (map make-empty-method
                          (syntax->list
+                          (syntax (method-spec ...))))]
+                   [(compose-methods ...)
+                    (map make-compose-method
+                         (syntax->list
                           (syntax (method-spec ...))))])
        (quasisyntax/loc stx
          (let ([surrogate<%>
@@ -244,7 +296,21 @@
                   (define/public (on-disable-surrogate x) (void))
                   empty-methods ...
                   (super-new)))
-            surrogate<%>))))]))
+            surrogate<%>
+            (let ([cls (class* object% (surrogate<%>)
+                         (init h n)
+                         (define here h)
+                         (define next n)
+                         (define/public (on-enable-surrogate x)
+                           (send here on-enable-surrogate x)
+                           (send next on-enable-surrogate x))
+                         (define/public (on-disable-surrogate x)
+                           (send here on-disable-surrogate x)
+                           (send next on-disable-surrogate x))
+                         compose-methods ...
+                         (super-new))])
+              (λ (h n)
+                (new cls [h h] [n n])))))))]))
 
 (define (always-do-the-call-surrogate-wrapper-proc fallback main) (main))
 
@@ -284,3 +350,30 @@
      void
      (λ ()
        (send new-surrogate on-enable-surrogate this)))))
+
+(module+ test
+  (require rackunit)
+  (define-values (host-mixin host<%> sur% sur<%> sur-compose)
+    (surrogate (override test (x))))
+
+  (define host% (host-mixin (class object%
+                              (define/public (test x)
+                                x)
+                              (super-new))))
+
+  (define sur1%
+    (class sur%
+      (init-field n)
+      (define/override (test ths super-call x)
+        (cons n (super-call x)))
+      (super-new)))
+
+  (define (sur x)
+    (new sur1% [n x]))
+
+  (define h (new host%))
+
+  (define (comp . ls) (foldr sur-compose (new sur%) ls))
+  (send h set-surrogate
+        (comp (sur 1) (sur 2) (sur 3) (sur 4)))
+  (check-equal? (send h test '(0)) '(1 2 3 4 0)))
