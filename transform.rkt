@@ -9,7 +9,6 @@
 (import drracket:tool^)
 (export transform^)
 
-
 (define (append-here add str ed ev)
   (define (->text s)
     (cond
@@ -21,7 +20,7 @@
        (define beg (+ start -1))
        (define str* (substring str beg (+ beg span))) 
        str*] 
-      [else  
+      [else 
        (define-values (start span) (relocate (flat s)))
        (define beg (+ start -1))
        (define str* (substring str beg (+ beg span))) 
@@ -197,8 +196,7 @@
                       (define-values ,id ,expr)
                       (.... [id #'(id ...)] [expr #'(expr ...)])
                       . ,#'body)))])]
-        [_ (void)])))
-  (void))
+        [_ (void)]))))
 
 (define (append-options menu ed ev)
   (and-body
@@ -221,4 +219,5 @@
                (when neo-pos
                  (send ed tabify-selection pos neo-pos))))]))
 
-   (append-here add str ed ev)))
+   (append-here add str ed ev))
+  (void))

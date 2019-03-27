@@ -1,31 +1,48 @@
 #lang racket
 (require racket/gui drracket/tool framework racket/runtime-path
-         "transform-sig.rkt"
-         syntax/parse (for-syntax syntax/parse))
+         "transform-sig.rkt" compiler/cm
+         (only-in
+          (combine-in syntax/parse
+                      racket/unit
+                      racket/unit/lang/reader
+                      racket/runtime-config)))
 
 (provide tool@)
 
-(define-runtime-module-path trans.rkt "transform.rkt")
+(define-runtime-module-path trans-sig.rkt "transform-sig.rkt")
+(define-runtime-path trans.rkt "transform.rkt")
 
 (define trans void)
 
+(define-logger useless)
+
+(define-syntax-rule (with-time name body ...)
+  (let-values ([(_ t1 t2 t3)
+                (time-apply (λ () body ...) '())])
+    (log-useless-debug "~a done in ~a ms" name t1)))
+
+(define-syntax-rule (first e)
+  (call-with-values
+   (λ () e)
+   (λ (a . _) a)))
+
 (define (reload-transform)
-  (define-values (_ t1 t2 t3)
-    (time-apply
-     (λ ()
-       (parameterize ([current-namespace (make-base-namespace)])
-         (define ns (variable-reference->namespace (#%variable-reference)))
-         (namespace-attach-module ns 'racket)
-         (namespace-attach-module ns 'racket/gui)
-         (namespace-attach-module ns 'syntax/parse)
-         (namespace-attach-module ns 'framework)
-         (namespace-attach-module ns 'drracket/tool)
-         (namespace-attach-module ns '"transform-sig.rkt")
-         (set! trans (dynamic-require trans.rkt 'transform@))))
-     '()))
-  (log-message (current-logger) 'debug 'useless
-               (format "reloading done in ~a ms" t1)
-               (current-continuation-marks)))
+  (with-time "recompiling"
+    (managed-compile-zo trans.rkt))
+  (with-time "reloading"
+    (parameterize ([current-namespace (make-base-namespace)])
+      (define ns (variable-reference->namespace (#%variable-reference)))
+      (namespace-attach-module ns 'racket)
+      (namespace-attach-module ns 'racket/gui)
+      (namespace-attach-module ns 'racket/unit)
+      (namespace-attach-module ns 'racket/unit/lang/reader)
+      (namespace-attach-module ns 'racket/runtime-config)
+      (namespace-attach-module ns 'syntax/parse)
+      (namespace-attach-module ns 'syntax/parse/define)
+      (namespace-attach-module ns 'framework)
+      (namespace-attach-module ns 'drracket/tool)
+      (namespace-attach-module ns trans-sig.rkt)
+      (set! trans (dynamic-require trans.rkt 'transform@)))))
 
 (define tool@
   (unit
