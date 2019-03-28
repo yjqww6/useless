@@ -122,6 +122,29 @@
 
         (refresh-demand)))
 
+    (define unit-instances (make-hash))
+
+    (define unit-observers (make-weak-hash))
+
+    (define unit-obserser
+      (case-lambda
+        [(path)
+         (hash-remove! unit-instances path)
+         (for ([v (in-hash-values unit-observers)])
+           (v path))]
+        [(path tool)
+         (define-values/invoke-unit tool
+           (import drracket:tool^)
+           (export gadget^))
+         (hash-set! unit-instances path gadgets)
+         (for ([v (in-hash-values unit-observers)])
+           (v path gadgets))]))
+
+    (for ([(path tool) (in-hash gadgets+unit)])
+      (unit-obserser path tool))
+    
+    (hash-set! reload-observers unit-instances unit-obserser)
+
     (define (compose-gadgets insts)
       (define surs (filter values (hash-values insts)))
       (foldr surrogate-compose (new surrogate%) surs))
@@ -133,10 +156,7 @@
          (set-sur! (if (hash-empty? instances)
                        #f
                        (compose-gadgets instances)))]
-        [(path tool)
-         (define-values/invoke-unit tool
-           (import drracket:tool^)
-           (export gadget^))
+        [(path gadgets)
          (cond
            [(hash-ref gadgets key (λ () #f))
             =>
@@ -144,13 +164,15 @@
               (hash-set! instances path (new (it surrogate%))))]
            [else
             (hash-remove! instances path)])
-         (set-sur! (compose-gadgets instances))]))
+         (set-sur! (if (hash-empty? instances)
+                       #f
+                       (compose-gadgets instances)))]))
 
     (define (load-already key set-sur!)
       (define instances (make-hash))
-      (unless (hash-empty? gadgets+unit)
-        (for ([(path tool) (in-hash gadgets+unit)])
-          ((observer instances key set-sur!) path tool)))
+      (unless (hash-empty? unit-instances)
+        (for ([(path gadgets) (in-hash unit-instances)])
+          ((observer instances key set-sur!) path gadgets)))
       instances)
     
     (drracket:get/extend:extend-unit-frame frame-mixin)
@@ -164,7 +186,7 @@
            (load-already 'definition-mixin
                          (λ (sur)
                            (set-private-surrogate sur))))
-         (hash-set! reload-observers this
+         (hash-set! unit-observers this
                     (observer instances 'definition-mixin
                               (λ (sur)
                                 (set-private-surrogate sur)))))))
@@ -178,7 +200,7 @@
            (load-already 'interaction-mixin
                          (λ (sur)
                            (set-private-surrogate sur))))
-         (hash-set! reload-observers this
+         (hash-set! unit-observers this
                     (observer instances 'interaction-mixin
                               (λ (sur)
                                 (set-private-surrogate sur)))))))

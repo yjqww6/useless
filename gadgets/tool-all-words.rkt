@@ -10,7 +10,7 @@
   (import drracket:tool^)
   (export gadget^)
 
-  (define definition-mixin
+  (define m
     (mixin (surrogate<%>) ()
       (define/override (get-all-words ths super)
         (define-values (_ t1 t2 t3) (time-apply super '()))
@@ -19,4 +19,4 @@
       (super-new)))
 
   (define gadgets
-    (hasheq 'definition-mixin definition-mixin)))
+    (hasheq 'definition-mixin m 'interaction-mixin m)))
