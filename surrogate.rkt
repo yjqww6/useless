@@ -142,8 +142,8 @@
                                                 #'define/override)])
            (syntax
             (begin
-              (field [super-call-name
-                      (case-lambda super-proc-cases ...)])
+              (define super-call-name
+                (case-lambda super-proc-cases ...))
               (define/override/fnl name
                 (case-lambda cases ...)))))))
   
