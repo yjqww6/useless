@@ -42,7 +42,7 @@
   (namespace-attach-module ns logger.rkt))
 
 (define (reload-transform [first? #f])
-  (when first?
+  (when (not first?)
     (with-time "recompiling"
       (managed-compile-zo trans.rkt)))
   (with-time "reloading"
@@ -50,16 +50,34 @@
       (attach!)
       (set! trans (dynamic-require trans.rkt 'transform@)))))
 
-(define (reload-gadgets)
-  (with-time "reloading gadgets"
-    (parameterize ([current-namespace (make-base-namespace)])
-      (attach!)
-      (define gadgets
-        (for/list ([gadget (in-list (directory-list gadgets/))]
-                   #:when (regexp-match? #rx"^tool.*\\.rkt$" (path->string gadget)))
-          (dynamic-require (build-path gadgets/ gadget) 'tool@)))
-      (for ([v (in-weak-hash-values reload-observers)])
-        (v gadgets)))))
+(define gadgets+unit (make-hash))
+
+(define (refresh-menu add)
+  (define ((load! gadget)) 
+    (with-time "reloading gadgets"
+      (parameterize ([current-namespace (make-base-namespace)])
+        (attach!)
+        (define tool
+          (dynamic-require (build-path gadgets/ gadget) 'tool@))
+        (hash-set! gadgets+unit gadget tool)
+        (for ([v (in-weak-hash-values reload-observers)])
+          (v gadget tool)))))
+  
+  (define ((unload! gadget))
+    (hash-remove! gadgets+unit gadget)
+    (for ([v (in-weak-hash-values reload-observers)])
+      (v gadget)))
+  
+  (for ([gadget (in-list (directory-list gadgets/))]
+        #:when (regexp-match? #rx"^tool.*\\.rkt$"
+                              (path->string gadget)))
+    (cond
+      [(hash-ref gadgets+unit gadget (λ () #f))
+       (add (format "reload ~a" gadget) (load! gadget))]
+      [else
+       (add (format "load ~a" gadget) (load! gadget))]))
+  (for ([gadget (in-hash-keys gadgets+unit)])
+    (add (format "unload ~a" gadget) (unload! gadget))))
 
 (define reload-observers (make-weak-hasheq))
 
@@ -76,32 +94,64 @@
         (super-new)
         
         (define menu-bar (send this get-menu-bar))
+
+        (define/private (refresh-demand)
+          (for ([item (in-list (send me get-items))])
+            (send item delete))
+          (refresh-menu
+           (λ (str cb)
+             (new menu-item% [parent me]
+                  [label str] [callback (λ (a b) (cb) (refresh-demand))]))))
+        
         (define useless-menu
           (new menu% [parent menu-bar] [label "&Useless"]))
 
         (new menu-item% [parent useless-menu]
              [label "Reload transform"]
              [callback (λ (m e) (reload-transform))])
-        (new menu-item% [parent useless-menu]
-             [label "Reload gadgets"]
-             [callback (λ (m e) (reload-gadgets))])
-        (new menu-item% [parent useless-menu]
-             [label "Unload gadgets"]
-             [callback (λ (m e)
-                         (for ([v (in-weak-hash-values reload-observers)])
-                           (v '())))])))
 
-    (define (compose-gadgets gadgets key)
-      (new
-       ((foldr compose values
-               (filter
-                values
-                (for/list ([gadget (in-list gadgets)])
-                  (define-values/invoke-unit gadget
-                    (import drracket:tool^)
-                    (export gadget^))
-                  (hash-ref gadgets key (λ () #f)))))
-        surrogate%)))
+        (new menu-item% [parent useless-menu]
+             [label "Refresh Gadgets"]
+             [callback (λ (m e)
+                         (refresh-demand))])
+
+        (define me
+          (new menu%
+               [parent useless-menu]
+               [label "Gadgets"]))
+
+        (refresh-demand)))
+
+    (define (compose-gadgets insts)
+      (define surs (filter values (hash-values insts)))
+      (foldr surrogate-compose (new surrogate%) surs))
+
+    (define (observer instances key set-sur!)
+      (case-lambda
+        [(path)
+         (hash-remove! instances path)
+         (set-sur! (if (hash-empty? instances)
+                       #f
+                       (compose-gadgets instances)))]
+        [(path tool)
+         (define-values/invoke-unit tool
+           (import drracket:tool^)
+           (export gadget^))
+         (cond
+           [(hash-ref gadgets key (λ () #f))
+            =>
+            (λ (it)
+              (hash-set! instances path (new (it surrogate%))))]
+           [else
+            (hash-remove! instances path)])
+         (set-sur! (compose-gadgets instances))]))
+
+    (define (load-already key set-sur!)
+      (define instances (make-hash))
+      (unless (hash-empty? gadgets+unit)
+        (for ([(path tool) (in-hash gadgets+unit)])
+          ((observer instances key set-sur!) path tool)))
+      instances)
     
     (drracket:get/extend:extend-unit-frame frame-mixin)
 
@@ -110,23 +160,31 @@
        (class (host-mixin %)
          (inherit set-private-surrogate)
          (super-new)
+         (define instances
+           (load-already 'definition-mixin
+                         (λ (sur)
+                           (set-private-surrogate sur))))
          (hash-set! reload-observers this
-                    (λ (gadgets)
-                      (set-private-surrogate
-                       (compose-gadgets gadgets 'definition-mixin)))))))
+                    (observer instances 'definition-mixin
+                              (λ (sur)
+                                (set-private-surrogate sur)))))))
 
     (drracket:get/extend:extend-interactions-text
      (λ (%)
        (class (host-mixin %)
          (inherit set-private-surrogate)
          (super-new)
+         (define instances
+           (load-already 'interaction-mixin
+                         (λ (sur)
+                           (set-private-surrogate sur))))
          (hash-set! reload-observers this
-                    (λ (gadgets)
-                      (set-private-surrogate
-                       (compose-gadgets gadgets 'interaction-mixin)))))))
+                    (observer instances 'interaction-mixin
+                              (λ (sur)
+                                (set-private-surrogate sur)))))))
 
     (define trans-here trans)
-    (define append-here void)
+    (define append-here #f)
 
     (keymap:add-to-right-button-menu
      (let ([orig (keymap:add-to-right-button-menu)])
@@ -135,7 +193,9 @@
          (orig menu ed ev)
 
          (cond
-           [(eq? trans trans-here) (append-here menu ed ev)]
+           [(and (eq? trans trans-here)
+                 append-here)
+            (append-here menu ed ev)]
            [else
             (define-values/invoke-unit trans
               (import drracket:tool^)
@@ -146,4 +206,3 @@
          
          )))))
 (reload-transform #t)
-(reload-gadgets)

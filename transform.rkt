@@ -4,7 +4,7 @@
          (for-syntax syntax/parse)
          drracket/tool framework)
 
-(require "transform-sig.rkt" "and-body.rkt" "scope-guard.rkt" "tpl.rkt")
+(require "transform-sig.rkt" "and-body.rkt" "scope-guard.rkt" "tpl.rkt" "logger.rkt")
 
 (import drracket:tool^)
 (export transform^)
@@ -199,25 +199,30 @@
         [_ (void)]))))
 
 (define (append-options menu ed ev)
-  (and-body
-   #:all
-   (is-a? ed drracket:unit:definitions-text<%>)
-   (define pos (send ed get-start-position))
-   (define end (send ed get-forward-sexp pos))
-   (define str (send ed get-text pos end))
+  (define-values (_ t1 t2 t3)
+    (time-apply
+     (λ ()
+       (and-body
+        #:all
+        (is-a? ed drracket:unit:definitions-text<%>)
+        (define pos (send ed get-start-position))
+        (define end (send ed get-forward-sexp pos))
+        (define str (send ed get-text pos end))
               
-   (define (add label neo)
-     (new menu-item% [label label] [parent menu]
-          [callback
-           (λ (m e)
-             (with-scope-guard guard
-               (send ed begin-edit-sequence)
-               (guard (send ed end-edit-sequence))
-               (send ed delete pos end)
-               (send ed insert neo pos)
-               (define neo-pos (send ed get-forward-sexp pos))
-               (when neo-pos
-                 (send ed tabify-selection pos neo-pos))))]))
+        (define (add label neo)
+          (new menu-item% [label label] [parent menu]
+               [callback
+                (λ (m e)
+                  (with-scope-guard guard
+                    (send ed begin-edit-sequence)
+                    (guard (send ed end-edit-sequence))
+                    (send ed delete pos end)
+                    (send ed insert neo pos)
+                    (define neo-pos (send ed get-forward-sexp pos))
+                    (when neo-pos
+                      (send ed tabify-selection pos neo-pos))))]))
 
-   (append-here add str ed ev))
+        (append-here add str ed ev)))
+     '()))
+  (log-useless-debug "append-options called in ~ams" t1)
   (void))
