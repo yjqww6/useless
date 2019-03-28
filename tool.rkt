@@ -177,33 +177,24 @@
     
     (drracket:get/extend:extend-unit-frame frame-mixin)
 
+    (define ((text-mixin key) %) 
+      (class (host-mixin %)
+        (inherit set-private-surrogate)
+        (super-new)
+        (define instances
+          (load-already key
+                        (λ (sur)
+                          (set-private-surrogate sur))))
+        (hash-set! unit-observers this
+                   (observer instances key
+                             (λ (sur)
+                               (set-private-surrogate sur))))))
+
     (drracket:get/extend:extend-definitions-text
-     (λ (%)
-       (class (host-mixin %)
-         (inherit set-private-surrogate)
-         (super-new)
-         (define instances
-           (load-already 'definition-mixin
-                         (λ (sur)
-                           (set-private-surrogate sur))))
-         (hash-set! unit-observers this
-                    (observer instances 'definition-mixin
-                              (λ (sur)
-                                (set-private-surrogate sur)))))))
+     (text-mixin 'definition-mixin))
 
     (drracket:get/extend:extend-interactions-text
-     (λ (%)
-       (class (host-mixin %)
-         (inherit set-private-surrogate)
-         (super-new)
-         (define instances
-           (load-already 'interaction-mixin
-                         (λ (sur)
-                           (set-private-surrogate sur))))
-         (hash-set! unit-observers this
-                    (observer instances 'interaction-mixin
-                              (λ (sur)
-                                (set-private-surrogate sur)))))))
+     (text-mixin 'interaction-mixin))
 
     (define trans-here trans)
     (define append-here #f)
