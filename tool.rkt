@@ -146,8 +146,8 @@
     (hash-set! reload-observers unit-instances unit-obserser)
 
     (define (compose-gadgets insts)
-      (define surs (filter values (hash-values insts)))
-      (foldr surrogate-compose (new surrogate%) surs))
+      (define surs (hash-values insts))
+      (foldr surrogate-compose (car surs) (cdr surs)))
 
     (define (observer instances key set-sur!)
       (case-lambda
