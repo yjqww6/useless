@@ -38,33 +38,58 @@
 
 (define gadgets+unit (make-hash))
 
-(define (load! gadget) 
-  (with-time "reloading gadgets"
+(define (load! . gadgets) 
+  (with-time "loading gadgets"
     (parameterize ([current-namespace (make-base-namespace)])
       (attach!)
-      (define tool
-        (dynamic-require (build-path gadgets/ gadget) 'tool@))
-      (hash-set! gadgets+unit gadget tool)
-      (for ([v (in-weak-hash-values reload-observers)])
-        (v gadget tool)))))
+      (for ([gadget (in-list gadgets)])
+        (define tool
+          (dynamic-require (build-path gadgets/ gadget) 'tool@))
+        (hash-set! gadgets+unit gadget tool)
+        (for ([v (in-weak-hash-values reload-observers)])
+          (v gadget tool))
+        (for ([v (in-weak-hash-values reload-observers)])
+          (v))))))
   
-(define (unload! gadget)
-  (hash-remove! gadgets+unit gadget)
+(define (unload! . gadgets)
+  (for ([gadget (in-list gadgets)])
+    (hash-remove! gadgets+unit gadget)
+    (for ([v (in-weak-hash-values reload-observers)])
+      (v gadget)))
   (for ([v (in-weak-hash-values reload-observers)])
-    (v gadget)))
+    (v)))
+
+(define (reload-all!)
+  (apply load!
+         (for/list ([gadget (in-list (sort (directory-list gadgets/) path<?))]
+                    #:when (regexp-match? #rx"^tool.*\\.rkt$"
+                                          (path->string gadget))
+                    #:when (hash-ref gadgets+unit gadget (λ () #f)))
+           gadget)))
+
+(define (unload-all!)
+  (apply unload!
+         (for/list ([gadget (in-list (sort (hash-keys gadgets+unit) path<?))])
+           gadget)))
+
+(define (->label filename)
+  (cond
+    [(regexp-match #rx"^tool-(.*)\\.rkt$" (path->string filename))
+     => second]
+    [else filename]))
 
 (define (refresh-menu add sep)
   (for ([gadget (in-list (sort (directory-list gadgets/) path<?))]
-        #:when (regexp-match? #rx"^tool.*\\.rkt$"
+        #:when (regexp-match? #rx"^tool-.*\\.rkt$"
                               (path->string gadget)))
     (cond
       [(hash-ref gadgets+unit gadget (λ () #f))
-       (add (format "reload ~a" gadget) (λ () (load! gadget)))]
+       (add (format "reload ~a" (->label gadget)) (λ () (load! gadget)))]
       [else
-       (add (format "load ~a" gadget) (λ () (load! gadget)))]))
+       (add (format "load ~a" (->label gadget)) (λ () (load! gadget)))]))
   (sep)
   (for ([gadget (in-list (sort (hash-keys gadgets+unit) path<?))])
-    (add (format "unload ~a" gadget) (λ () (unload! gadget)))))
+    (add (format "unload ~a" (->label gadget)) (λ () (unload! gadget)))))
 
 (define reload-observers (make-weak-hasheq))
 
@@ -111,6 +136,16 @@
                 [label "Refresh Gadgets"]
                 [callback (λ (m e)
                             (refresh-demand))])
+           (new menu-item% [parent useless-menu]
+                [label "Reload all Gadgets"]
+                [callback (λ (m e)
+                            (reload-all!)
+                            (refresh-demand))])
+           (new menu-item% [parent useless-menu]
+                [label "Unload all Gadgets"]
+                [callback (λ (m e)
+                            (unload-all!)
+                            (refresh-demand))])
            (new separator-menu-item%
                 [parent useless-menu])))
 
@@ -122,6 +157,9 @@
 
     (define unit-obserser
       (case-lambda
+        [()
+         (for ([v (in-hash-values unit-observers)])
+           (v))]
         [(path)
          (hash-remove! unit-instances path)
          (for ([v (in-hash-values unit-observers)])
@@ -142,11 +180,12 @@
 
     (define (observer instances key set-sur!)
       (case-lambda
-        [(path)
-         (hash-remove! instances path)
+        [()
          (set-sur! (if (hash-empty? instances)
                        #f
                        (compose-gadgets instances)))]
+        [(path)
+         (hash-remove! instances path)]
         [(path gadgets)
          (cond
            [(hash-ref gadgets key (λ () #f))
@@ -154,10 +193,7 @@
             (λ (it)
               (hash-set! instances path (new (it surrogate%))))]
            [else
-            (hash-remove! instances path)])
-         (set-sur! (if (hash-empty? instances)
-                       #f
-                       (compose-gadgets instances)))]))
+            (hash-remove! instances path)])]))
 
     (define (load-already key set-sur!)
       (define instances (make-hash))
@@ -170,16 +206,14 @@
 
     (define ((text-mixin key) %) 
       (class (host-mixin %)
-        (inherit set-private-surrogate)
+        (inherit set-private-surrogate invalidate-bitmap-cache)
         (super-new)
-        (define instances
-          (load-already key
-                        (λ (sur)
-                          (set-private-surrogate sur))))
         (hash-set! unit-observers this
-                   (observer instances key
-                             (λ (sur)
-                               (set-private-surrogate sur))))))
+                   (let* ([set-sur! (λ (sur)
+                                      (set-private-surrogate sur)
+                                      (invalidate-bitmap-cache))]
+                          [instances (load-already key set-sur!)])
+                     (observer instances key set-sur!)))))
 
     (drracket:get/extend:extend-definitions-text
      (text-mixin 'definition-mixin))
@@ -197,9 +231,10 @@
 
     (define popup-observer
       (case-lambda
-        [(path)
-         (hash-remove! popup-instances path)
+        [()
          (set! append-here (compose-popup))]
+        [(path)
+         (hash-remove! popup-instances path)]
         [(path gadgets)
          (cond
            [(hash-ref gadgets 'popup (λ () #f))
@@ -207,8 +242,7 @@
             (λ (it)
               (hash-set! popup-instances path it))]
            [else
-            (hash-remove! popup-instances path)])
-         (set! append-here (compose-popup))]))
+            (hash-remove! popup-instances path)])]))
 
     (hash-set! unit-observers popup-instances popup-observer)
 
@@ -219,7 +253,8 @@
          (append-here menu ed ev))))
 
     (for ([(path tool) (in-hash gadgets+unit)])
-      (unit-obserser path tool))))
+      (unit-obserser path tool))
+    (unit-obserser)))
 
 (require "gadgets/default.rkt")
-(for-each load! defaults)
+(apply load! defaults)
