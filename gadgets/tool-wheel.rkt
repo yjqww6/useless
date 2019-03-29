@@ -43,6 +43,11 @@
             (set! ts es)
             (set! up 0)
             (set! left 0)))
+        
+        (when (> (- (current-milliseconds) ts) 500)
+          (set! up 0)
+          (set! left 0))
+        
         (case (send event get-key-code)
           [(wheel-up) (set! up (+ up 1)) (finish)]
           [(wheel-down) (set! up (- up 1)) (finish)]
