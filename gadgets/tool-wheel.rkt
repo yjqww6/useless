@@ -13,24 +13,44 @@
   (define m
     (mixin (c:surrogate<%>) ()
       (define ts 0)
-      (define times 0)
+      (define up 0)
+      (define left 0)
       (define/override (on-char ths super event)
-        (cond
-          [(memq (send event get-key-code) '(wheel-up wheel-down))
-           (define es (send event get-time-stamp))
-           (cond
-             [(> (- es ts) 200)
+        (log-useless-debug "on-char ~a" (send event get-key-code))
+        (define (finish)
+          (define es (current-milliseconds))
+          (when (> (- es ts) 200)
 
-              (define old-step (send ths wheel-step))
-              (send ths wheel-step (* (+ times 1) old-step))
-              (super event)
-              (send ths wheel-step old-step)
+            (define old-step (send ths wheel-step))
+            
+            (cond
+              [(> up 0)
+               (send ths wheel-step (* up old-step))
+               (super (new key-event% [key-code 'wheel-up]))]
+              [(< up 0)
+               (send ths wheel-step (* (- up) old-step))
+               (super (new key-event% [key-code 'wheel-down]))])
+             
+            (cond
+              [(> left 0)
+               (send ths wheel-step (* left old-step))
+               (super (new key-event% [key-code 'wheel-left]))]
+              [(< left 0)
+               (send ths wheel-step (* (- left) old-step))
+               (super (new key-event% [key-code 'wheel-right]))])
+            (send ths wheel-step old-step)
               
-              (set! ts es)
-              (set! times 0)]
-             [else
-              (set! times (+ 1 times))])]
+            (set! ts es)
+            (set! up 0)
+            (set! left 0)))
+        (case (send event get-key-code)
+          [(wheel-up) (set! up (+ up 1)) (finish)]
+          [(wheel-down) (set! up (- up 1)) (finish)]
+          [(wheel-left) (set! left (+ left 1)) (finish)]
+          [(wheel-right) (set! left (- left 1)) (finish)]
           [else
+           (set! up 0)
+           (set! left 0)
            (super event)]))
       (super-new)))
 
