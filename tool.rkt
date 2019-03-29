@@ -1,22 +1,13 @@
 #lang racket
 (require racket/gui drracket/tool framework racket/runtime-path
-         "transform-sig.rkt" compiler/cm "methods.rkt" "gadgets/gadget-sig.rkt"
-         "logger.rkt"
-         (only-in
-          (combine-in syntax/parse syntax/parse/define
-                      racket/runtime-config)))
+         "transform-sig.rkt" compiler/cm "methods.rkt"
+         "gadgets/gadget-sig.rkt"
+         "logger.rkt" "gadgets/default.rkt"
+         "gadgets/module-transfer-sig.rkt")
 
 (provide tool@)
 
 (define-runtime-path gadgets/ "gadgets")
-(define-runtime-module-path methods.rkt "methods.rkt")
-(define-runtime-module-path gadgets/gadget-sig.rkt "gadgets/gadget-sig.rkt")
-(define-runtime-module-path logger.rkt "logger.rkt")
-
-(define-syntax-rule (with-time name body ...)
-  (let-values ([(_ t1 t2 t3)
-                (time-apply (λ () body ...) '())])
-    (log-useless-debug "~a done in ~a ms" name t1)))
 
 (define-syntax-rule (first e)
   (call-with-values
@@ -25,23 +16,16 @@
 
 (define (attach!)
   (define ns (variable-reference->namespace (#%variable-reference)))
-  (namespace-attach-module ns 'racket)
-  (namespace-attach-module ns 'racket/gui)
-  (namespace-attach-module ns 'racket/unit)
-  (namespace-attach-module ns 'racket/runtime-config)
-  (namespace-attach-module ns 'syntax/parse)
-  (namespace-attach-module ns 'syntax/parse/define)
-  (namespace-attach-module ns 'framework)
-  (namespace-attach-module ns 'drracket/tool)
-  (namespace-attach-module ns methods.rkt)
-  (namespace-attach-module ns gadgets/gadget-sig.rkt)
-  (namespace-attach-module ns logger.rkt))
+  (for ([mod (in-list modules)])
+    (parameterize ([current-namespace ns])
+      (namespace-require mod))
+    (namespace-attach-module ns mod)))
 
 (define gadgets+unit (make-hash))
 
 (define (load! . gadgets) 
   (with-time "loading gadgets"
-    (parameterize ([current-namespace (make-base-namespace)])
+    (parameterize ([current-namespace (make-empty-namespace)])
       (attach!)
       (for ([gadget (in-list gadgets)])
         (define tool
@@ -156,6 +140,8 @@
 
     (define unit-observers (make-weak-hash))
 
+    (define tool-ns (current-namespace))
+
     (define unit-obserser
       (case-lambda
         [()
@@ -166,8 +152,13 @@
          (for ([v (in-hash-values unit-observers)])
            (v path))]
         [(path tool)
+         (define (attach-module! mod you)
+           (define ns (variable-reference->namespace (#%variable-reference)))
+           (parameterize ([current-namespace ns])
+             (namespace-require mod))
+           (namespace-attach-module ns mod you))
          (define-values/invoke-unit tool
-           (import drracket:tool^)
+           (import drracket:tool^ module-transfer^)
            (export gadget^))
          (hash-set! unit-instances path gadgets)
          (for ([v (in-hash-values unit-observers)])
@@ -257,5 +248,4 @@
       (unit-obserser path tool))
     (unit-obserser)))
 
-(require "gadgets/default.rkt")
 (apply load! defaults)
