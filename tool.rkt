@@ -3,7 +3,8 @@
          "transform-sig.rkt" compiler/cm "methods.rkt" "gadgets/gadget-sig.rkt"
          "logger.rkt"
          (only-in
-          (combine-in syntax/parse racket/runtime-config)))
+          (combine-in syntax/parse syntax/parse/define
+                      racket/runtime-config)))
 
 (provide tool@)
 
