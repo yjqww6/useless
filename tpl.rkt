@@ -2,7 +2,12 @@
 
 (require syntax/parse (for-syntax syntax/parse))
 
-(provide ~ relocate flat current->text gen cases)
+(provide ~ relocate flat current->text gen cases unwrap)
+
+(define (unwrap str)
+  (cond
+    [(regexp-match #px"^\\s*\\((.*)\\)\\s*$" str) => second]
+    [else str]))
 
 (define (just str orig?)
   (if orig?

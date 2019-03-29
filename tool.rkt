@@ -68,7 +68,7 @@
     (for ([v (in-weak-hash-values reload-observers)])
       (v gadget)))
   
-  (for ([gadget (in-list (directory-list gadgets/))]
+  (for ([gadget (in-list (sort (directory-list gadgets/) path<?))]
         #:when (regexp-match? #rx"^tool.*\\.rkt$"
                               (path->string gadget)))
     (cond
@@ -76,7 +76,7 @@
        (add (format "reload ~a" gadget) (load! gadget))]
       [else
        (add (format "load ~a" gadget) (load! gadget))]))
-  (for ([gadget (in-hash-keys gadgets+unit)])
+  (for ([gadget (in-list (sort (hash-keys gadgets+unit) path<?))])
     (add (format "unload ~a" gadget) (unload! gadget))))
 
 (define reload-observers (make-weak-hasheq))
@@ -96,29 +96,27 @@
         (define menu-bar (send this get-menu-bar))
 
         (define/private (refresh-demand)
-          (for ([item (in-list (send me get-items))])
+          (for ([item (in-list (send useless-menu get-items))]
+                #:unless (memq item persistent))
             (send item delete))
           (refresh-menu
            (λ (str cb)
-             (new menu-item% [parent me]
+             (new menu-item% [parent useless-menu]
                   [label str] [callback (λ (a b) (cb) (refresh-demand))]))))
         
         (define useless-menu
           (new menu% [parent menu-bar] [label "&Useless"]))
 
-        (new menu-item% [parent useless-menu]
-             [label "Reload transform"]
-             [callback (λ (m e) (reload-transform))])
+        (define persistent
+          (list
+           (new menu-item% [parent useless-menu]
+                [label "Reload transform"]
+                [callback (λ (m e) (reload-transform))])
 
-        (new menu-item% [parent useless-menu]
-             [label "Refresh Gadgets"]
-             [callback (λ (m e)
-                         (refresh-demand))])
-
-        (define me
-          (new menu%
-               [parent useless-menu]
-               [label "Gadgets"]))
+           (new menu-item% [parent useless-menu]
+                [label "Refresh Gadgets"]
+                [callback (λ (m e)
+                            (refresh-demand))])))
 
         (refresh-demand)))
 
@@ -146,7 +144,7 @@
     (hash-set! reload-observers unit-instances unit-obserser)
 
     (define (compose-gadgets insts)
-      (define surs (hash-values insts))
+      (define surs (map cdr (sort (hash->list insts) path<? #:key car)))
       (foldr surrogate-compose (car surs) (cdr surs)))
 
     (define (observer instances key set-sur!)

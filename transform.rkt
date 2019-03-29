@@ -31,6 +31,21 @@
       (define p (open-input-string str))
       (port-count-lines! p)
       (define stx (read-syntax #f p))
+
+      (cases stx
+        [(_ . body)
+         (add "unwrap 1"
+              (unwrap (~ ,#'body)))]
+        [(_ _ . body)
+         (add "unwrap 2"
+              (unwrap (~ ,#'body)))]
+        [_
+         (add "wrap with begin"
+              (~ (begin
+                   ,stx)))
+         (add "wrap with let"
+              (~ (let ()
+                   ,stx)))])
               
       (syntax-parse stx
         [((~datum if) test then else)
@@ -54,7 +69,9 @@
                      (~ (if ,#'test
                             ,#'then
                             ,#'else))))]
-           [(_ [test . then] [(~datum else) . else])
+           [(_ (~and [test . then]
+                     [_ (~not (~datum =>)) _])
+               [(~datum else) . else])
             (add "name test"
                  (~ (cond
                       [,#'test
@@ -156,21 +173,70 @@
         [((~datum quote) (data ...))
          (add "to (list ...)"
               (~ (list (quote ,d) (.... [d #'(data ...)]))))]
+        [((~datum let) loop:id ([x:id e:expr] ...) . body)
+         (add "to letrec"
+              (~ (letrec ([,#'loop (λ (,x (.... [x #'(x ...)]))
+                                     . ,#'body)])
+                   (,#'loop ,e (.... [e #'(e ...)])))))
+         (add "to letrec(equivalent)"
+              (~ ((letrec ([,#'loop (λ (,x (.... [x #'(x ...)]))
+                                      . ,#'body)])
+                    ,#'loop)
+                  ,e (.... [e #'(e ...)]))))
+         (add "to define(begin)"
+              (~ (begin
+                   (define (,#'loop ,x (.... [x #'(x ...)]))
+                     . ,#'body)
+                   (,#'loop ,e (.... [e #'(e ...)])))))
+         (add "to define(let)"
+              (~ (let ()
+                   (define (,#'loop ,x (.... [x #'(x ...)]))
+                     . ,#'body)
+                   (,#'loop ,e (.... [e #'(e ...)])))))
+         (add "to define"
+              (unwrap
+               (~ ((define (,#'loop ,x (.... [x #'(x ...)]))
+                     . ,#'body)
+                   (,#'loop ,e (.... [e #'(e ...)]))))))]
         [((~and h (~or (~datum let) (~datum let*))) . _)
          #:with lv (gen (syntax-parse #'h
                           [(~datum let) 'let-values]
                           [else 'let*-values]))
          (cases stx
+           [(_ ([x1:id test]) ((~datum if) x2:id then else))
+            #:when (free-identifier=? #'x1 #'x2)
+            (add "to cond"
+                 (if (> (syntax-line #'then) (syntax-line #'x2))
+                     (~ (cond
+                          [,#'test
+                           =>
+                           (λ (,#'x1)
+                             ,#'then)]
+                          [else
+                           ,#'else]))
+                     (~ (cond
+                          [,#'test => (λ (,#'x1) ,#'then)]
+                          [else ,#'else]))))]
            [(_ ([id expr] ...) . body)
             (add "to let-values"
                  (~ (,#'lv ([(,id) ,expr]
                             (.... [id #'(id ...)] [expr #'(expr ...)]))
                            . ,#'body)))
-            (add "to defines"
+            (add "to defines(begin)"
                  (~ (begin
                       (define ,id ,expr)
                       (.... [id #'(id ...)] [expr #'(expr ...)])
-                      . ,#'body)))]
+                      . ,#'body)))
+            (add "to defines(let)"
+                 (~ (let ()
+                      (define ,id ,expr)
+                      (.... [id #'(id ...)] [expr #'(expr ...)])
+                      . ,#'body)))
+            (add "to defines(unwrap)"
+                 (unwrap
+                  (~ ((define ,id ,expr)
+                      (.... [id #'(id ...)] [expr #'(expr ...)])
+                      . ,#'body))))]
            [(_ ([id expr] ...) ((~or (~datum λ) (~datum lambda)) args . body))
             #:with (keys ...)
             (for/list ([id (in-syntax #'(id ...))])
@@ -191,11 +257,21 @@
                             (.... [id #'(id ...)] [expr #'(expr ...)]))
                            . ,#'body)))]
            [(_ ([id expr] ...) . body)
-            (add "to define-values"
+            (add "to define-values(begin)"
                  (~ (begin
                       (define-values ,id ,expr)
                       (.... [id #'(id ...)] [expr #'(expr ...)])
-                      . ,#'body)))])]
+                      . ,#'body)))
+            (add "to define-values(let)"
+                 (~ (let ()
+                      (define-values ,id ,expr)
+                      (.... [id #'(id ...)] [expr #'(expr ...)])
+                      . ,#'body)))
+            (add "to define-values(unwrap)"
+                 (unwrap
+                  (~ ((define-values ,id ,expr)
+                      (.... [id #'(id ...)] [expr #'(expr ...)])
+                      . ,#'body))))])]
         [_ (void)]))))
 
 (define (append-options menu ed ev)
@@ -218,7 +294,7 @@
                     (guard (send ed end-edit-sequence))
                     (send ed delete pos end)
                     (send ed insert neo pos)
-                    (define neo-pos (send ed get-forward-sexp pos))
+                    (define neo-pos (+ pos (string-length neo)))
                     (when neo-pos
                       (send ed tabify-selection pos neo-pos))))]))
 
