@@ -1,6 +1,6 @@
 #lang racket
 (require racket/gui drracket/tool framework racket/runtime-path
-         "transform-sig.rkt" compiler/cm "methods.rkt"
+         compiler/cm "methods.rkt"
          "gadgets/gadget-sig.rkt"
          "logger.rkt" "gadgets/default.rkt"
          "gadgets/module-transfer-sig.rkt")

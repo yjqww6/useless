@@ -4,6 +4,7 @@
 (define version "0.1")
 (define collection "useless")
 (define deps '("base" "gui-lib" "drracket-plugin-lib" "drracket-tool-lib" "quickscript"))
+(define build-deps '("rackunit-lib"))
 
 (define drracket-tools '(("tool.rkt")))
 (define drracket-tool-names (list "useless"))
