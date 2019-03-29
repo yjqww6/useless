@@ -2,8 +2,7 @@
 (require racket/gui drracket/tool framework racket/runtime-path
          compiler/cm "methods.rkt"
          "gadgets/gadget-sig.rkt"
-         "logger.rkt" "gadgets/default.rkt"
-         "gadgets/module-transfer-sig.rkt")
+         "logger.rkt" "gadgets/default.rkt")
 
 (provide tool@)
 
@@ -64,14 +63,20 @@
     [else filename]))
 
 (define (refresh-menu add sep)
-  (for ([gadget (in-list (sort (directory-list gadgets/) path<?))]
-        #:when (regexp-match? #rx"^tool-.*\\.rkt$"
-                              (path->string gadget)))
-    (cond
-      [(hash-ref gadgets+unit gadget (λ () #f))
-       (add (format "reload ~a" (->label gadget)) (λ () (load! gadget)))]
-      [else
-       (add (format "load ~a" (->label gadget)) (λ () (load! gadget)))]))
+  (define-values (r l)
+    (for/fold ([r '()] [l '()])
+              ([gadget (in-list (sort (directory-list gadgets/) path<?))]
+               #:when (regexp-match? #rx"^tool-.*\\.rkt$"
+                                     (path->string gadget)))
+      (cond
+        [(hash-ref gadgets+unit gadget (λ () #f))
+         (values (cons (λ () (add (format "reload ~a" (->label gadget)) (λ () (load! gadget)))) r)
+                 l)]
+        [else
+         (values r (cons (λ () (add (format "load ~a" (->label gadget)) (λ () (load! gadget)))) l))])))
+  (for ([r (in-list r)]) (r))
+  (sep)
+  (for ([r (in-list l)]) (r))
   (sep)
   (for ([gadget (in-list (sort (hash-keys gadgets+unit) path<?))])
     (add (format "unload ~a" (->label gadget)) (λ () (unload! gadget)))))
@@ -152,13 +157,8 @@
          (for ([v (in-hash-values unit-observers)])
            (v path))]
         [(path tool)
-         (define (attach-module! mod you)
-           (define ns (variable-reference->namespace (#%variable-reference)))
-           (parameterize ([current-namespace ns])
-             (namespace-require mod))
-           (namespace-attach-module ns mod you))
          (define-values/invoke-unit tool
-           (import drracket:tool^ module-transfer^)
+           (import drracket:tool^)
            (export gadget^))
          (hash-set! unit-instances path gadgets)
          (for ([v (in-hash-values unit-observers)])
@@ -166,37 +166,40 @@
     
     (hash-set! reload-observers unit-instances unit-obserser)
 
-    (define (compose-gadgets insts)
-      (define surs (map cdr (sort (hash->list insts) path<? #:key car)))
-      (foldr surrogate-compose (car surs) (cdr surs)))
+    (define (make-sur sur% surrogate-compose)
+      (define (observer instances key set-sur!)
+        (define (compose-gadgets insts)
+          (define surs (map cdr (sort (hash->list insts) path<? #:key car)))
+          (foldr surrogate-compose (car surs) (cdr surs)))
+        (case-lambda
+          [()
+           (set-sur! (if (hash-empty? instances)
+                         #f
+                         (compose-gadgets instances)))]
+          [(path)
+           (hash-remove! instances path)]
+          [(path gadgets)
+           (cond
+             [(hash-ref gadgets key (λ () #f))
+              =>
+              (λ (it)
+                (hash-set! instances path (new (it sur%))))]
+             [else
+              (hash-remove! instances path)])]))
 
-    (define (observer instances key set-sur!)
-      (case-lambda
-        [()
-         (set-sur! (if (hash-empty? instances)
-                       #f
-                       (compose-gadgets instances)))]
-        [(path)
-         (hash-remove! instances path)]
-        [(path gadgets)
-         (cond
-           [(hash-ref gadgets key (λ () #f))
-            =>
-            (λ (it)
-              (hash-set! instances path (new (it surrogate%))))]
-           [else
-            (hash-remove! instances path)])]))
-
-    (define (load-already key set-sur!)
-      (define instances (make-hash))
-      (unless (hash-empty? unit-instances)
+      (define (load-already key set-sur!)
+        (define instances (make-hash))
+        (define ob (observer instances key set-sur!))
         (for ([(path gadgets) (in-hash unit-instances)])
-          ((observer instances key set-sur!) path gadgets)))
-      instances)
+          (ob path gadgets))
+        (ob)
+        instances)
+      (values observer load-already))
     
     (drracket:get/extend:extend-unit-frame frame-mixin)
 
-    (define ((text-mixin key) %) 
+    (define ((text-mixin key) %)
+      (define-values (observer load-already) (make-sur surrogate% surrogate-compose))
       (class (host-mixin %)
         (inherit set-private-surrogate invalidate-bitmap-cache)
         (super-new)
@@ -212,6 +215,23 @@
 
     (drracket:get/extend:extend-interactions-text
      (text-mixin 'interaction-mixin))
+
+    (define ((canvas-mixin key) %)
+      (define-values (observer load-already) (make-sur c:surrogate% c:surrogate-compose))
+      (class (c:host-mixin %)
+        (inherit set-private-surrogate)
+        (super-new)
+        (hash-set! unit-observers this
+                   (let* ([set-sur! (λ (sur)
+                                      (set-private-surrogate sur))]
+                          [instances (load-already key set-sur!)])
+                     (observer instances key set-sur!)))))
+
+    (drracket:get/extend:extend-definitions-canvas
+     (canvas-mixin 'definition-canvas-mixin))
+
+    (drracket:get/extend:extend-interactions-canvas
+     (canvas-mixin 'interaction-canvas-mixin))
 
     (define popup-instances (make-hash))
     (define append-here void)

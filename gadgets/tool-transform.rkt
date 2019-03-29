@@ -10,7 +10,7 @@
   (import drracket:tool^)
   (export gadget^)
 
-  (define (append-here add str ed ev)
+  (define (append-here add sep str ed ev)
     (define (->text s)
       (cond
         [(syntax-property s 'transform)
@@ -47,6 +47,8 @@
            (add "wrap with let"
                 (~ (let ()
                      ,stx)))])
+
+        (sep)
               
         (syntax-parse stx
           [((~datum if) test then else)
@@ -276,6 +278,7 @@
           [_ (void)]))))
 
   (define (append-options menu ed ev)
+    (new separator-menu-item% [parent menu])
     (define-values (_ t1 t2 t3)
       (time-apply
        (λ ()
@@ -299,7 +302,10 @@
                       (when neo-pos
                         (send ed tabify-selection pos neo-pos))))]))
 
-          (append-here add str ed ev)))
+          (define (sep)
+            (new separator-menu-item% [parent menu]))
+
+          (append-here add sep str ed ev)))
        '()))
     (log-useless-debug "append-options called in ~ams" t1)
     (void))

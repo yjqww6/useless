@@ -15,6 +15,10 @@
       (define/override (on-char ths super event)
         (log-useless-debug "on-char ~a" (send event get-key-code))
         (super event))
+      #;
+      (define/override (on-paint ths super . args)
+        (with-time "on-paint"
+          (apply super args)))
       (super-new)))
 
   (define gadgets

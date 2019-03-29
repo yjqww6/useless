@@ -15,4 +15,11 @@
                  m ...))
     (surrogate-methods g)))
 
+(define-values (c:host-mixin c:host<%> c:surrogate% c:surrogate<%> c:surrogate-compose)
+  (surrogate  #:set-surrogate set-private-surrogate
+              #:get-surrogate get-private-surrogate
+              (override on-char (event))
+              (override on-event (event))
+              (override on-paint ())))
+
 (provide (all-defined-out))
