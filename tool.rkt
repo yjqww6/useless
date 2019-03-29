@@ -145,7 +145,7 @@
 
     (define (compose-gadgets insts)
       (define surs (map cdr (sort (hash->list insts) path<? #:key car)))
-      (foldr surrogate-compose (new surrogate%) surs))
+      (foldr surrogate-compose (car surs) (cdr surs)))
 
     (define (observer instances key set-sur!)
       (case-lambda
