@@ -20,6 +20,7 @@
               #:get-surrogate get-private-surrogate
               (override on-char (event))
               (override on-event (event))
-              (override on-paint ())))
+              (override on-paint ())
+              (override on-superwindow-show (shown?))))
 
 (provide (all-defined-out))
