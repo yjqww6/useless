@@ -2,7 +2,7 @@
 (require racket/runtime-path)
 (define defaults (map string->path
                       (append (if (eq? (system-type 'os) 'macosx)
-                                  '("tool-wheel.rkt")
+                                  '("tool-wheel2.rkt")
                                   '())
                               '("tool-transform.rkt"))))
 
