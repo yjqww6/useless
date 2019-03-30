@@ -19,7 +19,7 @@
         (log-useless-debug "on-char ~a" (send event get-key-code))
         (define (finish)
           (define es (current-milliseconds))
-          (when (> (- es ts) 200)
+          (when (> (- es ts) 120)
 
             (define old-step (send ths wheel-step))
             

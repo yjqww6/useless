@@ -17,40 +17,46 @@
 
       (define ths #f)
       (define by-thr #f)
+
+      (define interval 0.12)
       
       (define thr
         (thread
          (λ ()
            (with-handlers ([exn:break? void])
              (let loop ()
-               (sleep 0.16)
-               (queue-callback
-                (λ ()
-                  (with-scope-guard guard
-                    (set! by-thr #t)
-                    (guard (set! by-thr #f))
-                    (when ths
-                      (define old-step (send ths wheel-step))
+               (sleep (/ interval 2))
+               (unless (and (= up 0) (= left 0))
+                 
+                 (queue-callback
+                  (λ ()
+                    (with-scope-guard guard
+                      (set! by-thr #t)
+                      (guard (set! by-thr #f))
+                      (when ths
+                        (define old-step (send ths wheel-step))
             
-                      (cond
-                        [(> up 0)
-                         (send ths wheel-step (* up old-step))
-                         (send ths on-char (new key-event% [key-code 'wheel-up]))]
-                        [(< up 0)
-                         (send ths wheel-step (* (- up) old-step))
-                         (send ths on-char (new key-event% [key-code 'wheel-down]))])
+                        (cond
+                          [(> up 0)
+                           (send ths wheel-step (* up old-step))
+                           (send ths on-char (new key-event% [key-code 'wheel-up]))]
+                          [(< up 0)
+                           (send ths wheel-step (* (- up) old-step))
+                           (send ths on-char (new key-event% [key-code 'wheel-down]))])
              
-                      (cond
-                        [(> left 0)
-                         (send ths wheel-step (* left old-step))
-                         (send ths on-char (new key-event% [key-code 'wheel-left]))]
-                        [(< left 0)
-                         (send ths wheel-step (* (- left) old-step))
-                         (send ths on-char (new key-event% [key-code 'wheel-right]))])
-                      (send ths wheel-step old-step)
+                        (cond
+                          [(> left 0)
+                           (send ths wheel-step (* left old-step))
+                           (send ths on-char (new key-event% [key-code 'wheel-left]))]
+                          [(< left 0)
+                           (send ths wheel-step (* (- left) old-step))
+                           (send ths on-char (new key-event% [key-code 'wheel-right]))])
+                        (send ths wheel-step old-step)
                     
-                      (set! up 0)
-                      (set! left 0)))))
+                        (set! up 0)
+                        (set! left 0)))))
+                 
+                   (sleep (/ interval 2)))
                (loop))))))
 
       (define/override (on-disable-surrogate x)
