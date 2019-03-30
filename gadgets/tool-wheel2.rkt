@@ -2,7 +2,7 @@
 
 (require racket/gui drracket/tool framework)
 
-(require "../methods.rkt" "gadget-sig.rkt" "../logger.rkt" "../scope-guard.rkt")
+(require "../methods.rkt" "gadget-sig.rkt" "../logger.rkt" "../scope-guard.rkt" "../and-body.rkt")
 
 (provide tool@)
 
@@ -34,37 +34,42 @@
                       (set! by-thr #t)
                       (guard (set! by-thr #f))
                       (when ths
-                        (define old-step (send ths wheel-step))
+                        (let ([ths (weak-box-value ths)])
+                          (when ths
+                            (with-method ([wheel-step (ths wheel-step)]
+                                          [on-char (ths on-char)])
+                              (define old-step (wheel-step))
             
-                        (cond
-                          [(> up 0)
-                           (send ths wheel-step (* up old-step))
-                           (send ths on-char (new key-event% [key-code 'wheel-up]))]
-                          [(< up 0)
-                           (send ths wheel-step (* (- up) old-step))
-                           (send ths on-char (new key-event% [key-code 'wheel-down]))])
+                              (cond
+                                [(> up 0)
+                                 (wheel-step (* up old-step))
+                                 (on-char (new key-event% [key-code 'wheel-up]))]
+                                [(< up 0)
+                                 (wheel-step (* (- up) old-step))
+                                 (on-char (new key-event% [key-code 'wheel-down]))])
              
-                        (cond
-                          [(> left 0)
-                           (send ths wheel-step (* left old-step))
-                           (send ths on-char (new key-event% [key-code 'wheel-left]))]
-                          [(< left 0)
-                           (send ths wheel-step (* (- left) old-step))
-                           (send ths on-char (new key-event% [key-code 'wheel-right]))])
-                        (send ths wheel-step old-step)
+                              (cond
+                                [(> left 0)
+                                 (wheel-step (* left old-step))
+                                 (on-char (new key-event% [key-code 'wheel-left]))]
+                                [(< left 0)
+                                 (wheel-step (* (- left) old-step))
+                                 (on-char (new key-event% [key-code 'wheel-right]))])
+                              (wheel-step old-step)
                     
-                        (set! up 0)
-                        (set! left 0)))))
+                              (set! up 0)
+                              (set! left 0))))))))
                  
                  (sleep (/ interval 2)))
-               (loop))))))
+               (when (or (not ths) (weak-box-value ths))
+                 (loop)))))))
 
       (define/override (on-disable-surrogate x)
         (break-thread thr))
       
       (define/override (on-char this super event)
         ;(log-useless-debug "on-char ~a" (send event get-key-code))
-        (set! ths this)
+        (set! ths (make-weak-box this))
         (if by-thr
             (super event)
             (case (send event get-key-code)
