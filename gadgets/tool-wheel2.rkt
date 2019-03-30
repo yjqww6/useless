@@ -56,7 +56,7 @@
                         (set! up 0)
                         (set! left 0)))))
                  
-                   (sleep (/ interval 2)))
+                 (sleep (/ interval 2)))
                (loop))))))
 
       (define/override (on-disable-surrogate x)
