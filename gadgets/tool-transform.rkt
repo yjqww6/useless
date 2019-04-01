@@ -279,6 +279,16 @@
 
   (define (append-options menu ed ev)
     (new separator-menu-item% [parent menu])
+    (when (is-a? ed racket:text<%>)
+      (new menu-item% [label "let and print"] [parent menu]
+           [callback (λ (m e)
+                       (send ed introduce-let-ans
+                             (send ed get-start-position)))])
+      (new menu-item% [label "transpose"] [parent menu]
+           [callback (λ (m e)
+                       (send ed transpose-sexp
+                             (send ed get-start-position)))])
+      (new separator-menu-item% [parent menu]))
     (define-values (_ t1 t2 t3)
       (time-apply
        (λ ()
