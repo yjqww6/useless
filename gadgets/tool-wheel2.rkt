@@ -35,7 +35,7 @@
                      (with-method ([wheel-step (ths wheel-step)]
                                    [on-char (ths on-char)])
                        (define old-step (wheel-step))
-            
+
                        (cond
                          [(> up 0)
                           (wheel-step (* up old-step))
