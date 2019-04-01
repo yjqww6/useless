@@ -22,6 +22,8 @@
 
 (define gadgets+unit (make-hash))
 
+(define gadget-rx #rx"^tool-(.*)\\.rkt$")
+
 (define (load! . gadgets) 
   (with-time "loading gadgets"
     (parameterize ([current-namespace (make-empty-namespace)])
@@ -46,8 +48,7 @@
 (define (reload-all!)
   (apply load!
          (for/list ([gadget (in-list (sort (directory-list gadgets/) path<?))]
-                    #:when (regexp-match? #rx"^tool.*\\.rkt$"
-                                          (path->string gadget))
+                    #:when (regexp-match? gadget-rx (path->string gadget))
                     #:when (hash-ref gadgets+unit gadget (λ () #f)))
            gadget)))
 
@@ -58,7 +59,7 @@
 
 (define (->label filename)
   (cond
-    [(regexp-match #rx"^tool-(.*)\\.rkt$" (path->string filename))
+    [(regexp-match gadget-rx (path->string filename))
      => second]
     [else filename]))
 
@@ -66,8 +67,7 @@
   (define-values (r l)
     (for/fold ([r '()] [l '()])
               ([gadget (in-list (sort (directory-list gadgets/) path<?))]
-               #:when (regexp-match? #rx"^tool-.*\\.rkt$"
-                                     (path->string gadget)))
+               #:when (regexp-match? gadget-rx (path->string gadget)))
       (cond
         [(hash-ref gadgets+unit gadget (λ () #f))
          (values (cons (λ () (add (format "reload ~a" (->label gadget)) (λ () (load! gadget)))) r)
@@ -119,8 +119,7 @@
                 [callback (λ (m e)
                             (with-time "Recompiling Gadgets"
                               (for ([gadget (in-list (sort (directory-list gadgets/) path<?))]
-                                    #:when (regexp-match? #rx"^tool.*\\.rkt$"
-                                                          (path->string gadget)))
+                                    #:when (regexp-match? gadget-rx (path->string gadget)))
                                 (managed-compile-zo (build-path gadgets/ gadget)))))])
            (new menu-item% [parent useless-menu]
                 [label "Refresh Gadgets"]
