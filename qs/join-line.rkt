@@ -14,3 +14,17 @@
      (define b (send ed get-backward-sexp f))
      (send ed delete line-end b))
     #f))
+
+(define-script let-and-print
+  #:label "let-and-print"
+  (λ (selection #:editor ed)
+    (send ed introduce-let-ans
+          (send ed get-start-position))
+    #f))
+
+(define-script transpose
+  #:label "transpose"
+  (λ (selection #:editor ed)
+    (send ed transpose-sexp
+          (send ed get-start-position))
+    #f))
