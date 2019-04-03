@@ -39,14 +39,7 @@
                 (unwrap (~ ,#'body)))]
           [(_ _ . body)
            (add "unwrap 2"
-                (unwrap (~ ,#'body)))]
-          [_
-           (add "wrap with begin"
-                (~ (begin
-                     ,stx)))
-           (add "wrap with let"
-                (~ (let ()
-                     ,stx)))])
+                (unwrap (~ ,#'body)))])
 
         (sep)
               
