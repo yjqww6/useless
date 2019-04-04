@@ -112,8 +112,12 @@
         (define useless-menu
           (new menu% [parent menu-bar] [label "&Useless"]))
 
+        (define gadget-menu
+          (new menu% [parent useless-menu] [label "Gadget"]))
+        
         (define persistent
           (list
+           gadget-menu
            (new menu-item% [parent useless-menu]
                 [label "Recompiling Gadgets"]
                 [callback (λ (m e)
@@ -138,7 +142,29 @@
            (new separator-menu-item%
                 [parent useless-menu])))
 
-        (refresh-demand)))
+        (define gmenus (make-hash))
+
+        (refresh-demand)
+        (hash-set! unit-observers this
+                   (case-lambda
+                     [()
+                      (for ([item (in-list (send gadget-menu get-items))])
+                        (send item delete))
+                      (for* ([v (in-hash-values gmenus)]
+                             [p (in-list v)])
+                        (new menu-item% [label (car p)]
+                             [parent gadget-menu]
+                             [callback (λ (b e) ((cdr p) this b e))]))]
+                     [(path)
+                      (hash-remove! gmenus path)]
+                     [(path gadget)
+                      (cond
+                        [(hash-ref gadget 'menu (λ () #f))
+                         =>
+                         (λ (it)
+                           (hash-set! gmenus path it))]
+                        [else
+                         (hash-remove! gmenus path)])]))))
 
     (define unit-instances (make-hash))
 
